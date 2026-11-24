@@ -1,0 +1,29 @@
+# build outputs and logs
+/build/
+/build-*/
+/out/
+*_log.txt
+*.obj
+*.pdb
+
+# dependencies (restored by vcpkg, see docs/BUILD.md)
+/third_party/vcpkg/
+/vcpkg_installed/
+/vcpkg_downloads/
+
+# local data, never commit
+*.db
+*.sqlite
+*.sqlite3
+connections.json
+settings.json
+.env
+*.pfx
+*.pem
+*.key
+
+# editors / OS
+.vs/
+.vscode/
+.idea/
+Thumbs.db

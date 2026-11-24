@@ -1,0 +1,508 @@
+import { ListView, ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Backend } from "backend.slint";
+import { Icon, Btn, IconBtn, TextField, Dropdown, Badge, Sep, Spinner, EmptyState } from "widgets.slint";
+import { DataGrid, ResultGrid } from "grid.slint";
+import { ConfirmDialog, ConnectionDialog, ExportDialog, DetailDialog } from "dialogs.slint";
+import { TreeRowUi } from "types.slint";
+
+component EnvBadge inherits Rectangle {
+    in property <int> env;
+    height: 18px;
+    border-radius: 9px;
+    visible: root.env > 0;
+    background: (root.env == 3 ? Theme.danger : root.env == 2 ? Theme.warning : Theme.accent).with-alpha(0.18);
+    Text {
+        x: 8px;
+        text: root.env == 3 ? Backend.t("env.prod") : root.env == 2 ? Backend.t("env.staging") : Backend.t("env.test");
+        font-size: 10px;
+        font-weight: 700;
+        color: root.env == 3 ? Theme.danger : root.env == 2 ? Theme.warning : Theme.accent;
+        vertical-alignment: center;
+    }
+    min-width: root.env > 0 ? t.preferred-width + 16px : 0px;
+    t := Text {
+        visible: false;
+        text: root.env == 3 ? Backend.t("env.prod") : root.env == 2 ? Backend.t("env.staging") : Backend.t("env.test");
+        font-size: 10px;
+        font-weight: 700;
+    }
+}
+
+component TreeItem inherits Rectangle {
+    in property <TreeRowUi> item;
+    in property <int> index;
+    height: 28px;
+    background: root.item.active ? Theme.accent-soft : ta.has-hover ? Theme.hover : transparent;
+    border-radius: 5px;
+
+    HorizontalLayout {
+        padding-left: 6px + root.item.depth * 14px;
+        padding-right: 6px;
+        spacing: 4px;
+        Rectangle {
+            width: 16px;
+            if root.item.kind <= 2: Icon {
+                glyph: root.item.expanded ? "\u{E70D}" : "\u{E76C}";
+                font-size: 9px;
+                color: Theme.text-faint;
+            }
+        }
+        Icon {
+            width: 18px;
+            font-size: 13px;
+            glyph: root.item.kind == 0 ? "\u{E839}" : root.item.kind == 1 ? "\u{EA65}" : root.item.kind == 2 ? "\u{E8B7}" : root.item.kind == 4 ? "\u{E7B3}" : root.item.kind == 5 ? "\u{F168}" : "\u{E80A}";
+            color: root.item.kind == 0 ? (root.item.connected ? (root.item.env == 3 ? Theme.danger : Theme.success) : Theme.text-faint) : root.item.kind == 3 || root.item.kind == 5 ? Theme.accent : Theme.text-dim;
+        }
+        Text {
+            text: root.item.label;
+            font-size: 12px;
+            font-weight: root.item.kind == 0 ? 600 : 400;
+            color: Theme.text;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        if root.item.busy: Spinner { size: 12px; }
+    }
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { Backend.tree-clicked(root.index); }
+        double-clicked => { Backend.tree-activated(root.index); }
+        pointer-event(e) => {
+            if (e.button == PointerEventButton.right && e.kind == PointerEventKind.up && root.item.kind == 0) {
+                menu.show();
+            }
+        }
+    }
+    menu := PopupWindow {
+        x: ta.mouse-x;
+        y: ta.mouse-y;
+        width: 180px;
+        height: 4px + (root.item.connected ? 3 : 2) * 30px + 4px;
+        Rectangle {
+            background: Theme.surface;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            VerticalLayout {
+                padding: 4px;
+                if root.item.connected: Rectangle {
+                    height: 30px;
+                    border-radius: 5px;
+                    background: a1.has-hover ? Theme.hover : transparent;
+                    Text { x: 10px; text: Backend.t("tree.disconnect"); font-size: 12px; color: Theme.text; vertical-alignment: center; }
+                    a1 := TouchArea { clicked => { Backend.tree-disconnect(root.index); menu.close(); } }
+                }
+                Rectangle {
+                    height: 30px;
+                    border-radius: 5px;
+                    background: a2.has-hover ? Theme.hover : transparent;
+                    Text { x: 10px; text: Backend.t("tree.edit"); font-size: 12px; color: Theme.text; vertical-alignment: center; }
+                    a2 := TouchArea { clicked => { Backend.tree-edit(root.index); menu.close(); } }
+                }
+                Rectangle {
+                    height: 30px;
+                    border-radius: 5px;
+                    background: a3.has-hover ? Theme.danger-soft : transparent;
+                    Text { x: 10px; text: Backend.t("tree.delete"); font-size: 12px; color: Theme.danger; vertical-alignment: center; }
+                    a3 := TouchArea { clicked => { Backend.tree-delete(root.index); menu.close(); } }
+                }
+            }
+        }
+    }
+}
+
+component Explorer inherits Rectangle {
+    background: Theme.sidebar;
+    VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 6px;
+            Text {
+                text: Backend.t("tree.title");
+                font-size: 11px;
+                font-weight: 700;
+                color: Theme.text-faint;
+                vertical-alignment: center;
+            }
+            Rectangle { }
+            IconBtn { glyph: "\u{E710}"; box: 26px; clicked => { Backend.new-connection(); } }
+            IconBtn { glyph: "\u{E72C}"; box: 26px; clicked => { Backend.refresh-tree(); } }
+        }
+        TextField {
+            value: Backend.tree-filter;
+            placeholder: Backend.t("tree.search");
+            edited(t) => { Backend.tree-filter = t; Backend.tree-filter-changed(); }
+        }
+        ListView {
+            vertical-stretch: 1;
+            for row[i] in Backend.tree: TreeItem { item: row; index: i; }
+        }
+        if Backend.tree.length == 0: EmptyState {
+            glyph: "\u{E839}";
+            title: Backend.t("tree.empty-title");
+            text: Backend.t("tree.empty-text");
+        }
+    }
+    Rectangle { x: parent.width - 1px; width: 1px; background: Theme.border; }
+}
+
+component GridToolbar inherits Rectangle {
+    height: 44px;
+    background: Theme.surface;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 4px;
+        Text {
+            text: Backend.table-title;
+            font-size: 14px;
+            font-weight: 700;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+            max-width: 280px;
+        }
+        Rectangle { width: 8px; }
+        IconBtn { glyph: "\u{E72C}"; enabled: Backend.has-table; clicked => { Backend.reload(); } }
+        Sep { vertical: true; }
+        IconBtn { glyph: "\u{E710}"; enabled: Backend.editable; clicked => { Backend.add-row(); } }
+        IconBtn { glyph: "\u{E8C8}"; enabled: Backend.editable && Backend.sel-row >= 0; clicked => { Backend.duplicate-row(); } }
+        IconBtn { glyph: "\u{E74D}"; enabled: Backend.editable && Backend.sel-row >= 0; tint: Theme.danger; clicked => { Backend.delete-rows(); } }
+        Sep { vertical: true; }
+        Btn { text: "NULL"; kind: "ghost"; compact: true; enabled: Backend.editable && Backend.sel-row >= 0; clicked => { Backend.set-null(); } }
+        IconBtn { glyph: "\u{E7A7}"; enabled: Backend.can-undo; clicked => { Backend.undo(); } }
+        IconBtn { glyph: "\u{E7A6}"; enabled: Backend.can-redo; clicked => { Backend.redo(); } }
+        IconBtn { glyph: "\u{E8C8}"; enabled: Backend.sel-row >= 0; clicked => { Backend.copy-cell(); } }
+        IconBtn { glyph: "\u{E8A1}"; enabled: Backend.sel-row >= 0 && Backend.sel-col >= 0; clicked => { Backend.open-detail(); } }
+        Rectangle { }
+        IconBtn { glyph: "\u{E943}"; active: Backend.show-query; enabled: Backend.has-table; clicked => { Backend.toggle-query(); } }
+        Btn { text: Backend.t("export"); icon: "\u{E896}"; compact: true; enabled: Backend.has-table; clicked => { Backend.export-data(); } }
+    }
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+}
+
+component PendingBar inherits Rectangle {
+    height: Backend.pending-count > 0 || Backend.blocked-reason != "" ? 38px : 0px;
+    clip: true;
+    background: Backend.pending-count > 0 ? Theme.edited : Theme.surface2;
+    animate height { duration: 120ms; }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        alignment: start;
+        if Backend.pending-count > 0: Icon { glyph: "\u{E70F}"; font-size: 13px; color: Theme.warning; }
+        Text {
+            text: Backend.pending-count > 0 ? Backend.pending-text : Backend.blocked-reason;
+            font-size: 12px;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        Rectangle { }
+        if Backend.pending-count > 0: Btn { text: Backend.t("discard"); compact: true; clicked => { Backend.discard(); } }
+        if Backend.pending-count > 0: Btn { text: Backend.t("save"); kind: "primary"; compact: true; icon: "\u{E74E}"; clicked => { Backend.save(); } }
+    }
+}
+
+component PagerBar inherits Rectangle {
+    height: 36px;
+    background: Theme.surface2;
+    Rectangle { height: 1px; background: Theme.border; }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 4px;
+        IconBtn { glyph: "\u{E892}"; box: 26px; enabled: Backend.page-index > 0; clicked => { Backend.first-page(); } }
+        IconBtn { glyph: "\u{E76B}"; box: 26px; enabled: Backend.page-index > 0; clicked => { Backend.prev-page(); } }
+        Text {
+            text: Backend.range-text;
+            font-size: 12px;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        IconBtn { glyph: "\u{E76C}"; box: 26px; enabled: Backend.has-more; clicked => { Backend.next-page(); } }
+        Rectangle { width: 8px; }
+        Text {
+            text: Backend.total-text;
+            font-size: 12px;
+            color: Theme.text-dim;
+            vertical-alignment: center;
+        }
+        if Backend.has-table && Backend.can-count: Btn {
+            text: Backend.t("pager.count");
+            kind: "ghost";
+            compact: true;
+            clicked => { Backend.count-total(); }
+        }
+        Rectangle { }
+        if Backend.filter-error != "": Text {
+            text: Backend.filter-error;
+            font-size: 12px;
+            color: Theme.danger;
+            vertical-alignment: center;
+        }
+        Text {
+            text: Backend.t("pager.rows-per-page");
+            font-size: 12px;
+            color: Theme.text-dim;
+            vertical-alignment: center;
+        }
+        Dropdown {
+            width: 86px;
+            height: 26px;
+            model: ["50", "100", "250", "500", "1000"];
+            current-index: Backend.page-size-index;
+            selected(i) => { Backend.page-size-picked(i); }
+        }
+    }
+}
+
+component DataView inherits Rectangle {
+    background: Theme.surface;
+    VerticalLayout {
+        if !Backend.has-table: EmptyState {
+            glyph: "\u{E80A}";
+            title: Backend.connected ? Backend.t("data.pick-table") : Backend.t("data.not-connected");
+            text: Backend.connected ? Backend.t("data.pick-table-text") : Backend.t("data.not-connected-text");
+        }
+        if Backend.has-table: GridToolbar { }
+        if Backend.has-table: PendingBar { }
+        if Backend.has-table: DataGrid { vertical-stretch: 1; }
+        if Backend.has-table && Backend.show-query: Rectangle {
+            height: 74px;
+            background: Theme.surface2;
+            Rectangle { height: 1px; background: Theme.border; }
+            ScrollView {
+                Text {
+                    x: 12px;
+                    y: 8px;
+                    width: parent.visible-width - 24px;
+                    text: Backend.query-text;
+                    font-size: 11px;
+                    font-family: Theme.mono;
+                    color: Theme.text-dim;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        if Backend.has-table: PagerBar { }
+    }
+}
+
+component SqlView inherits Rectangle {
+    background: Theme.surface;
+    VerticalLayout {
+        Rectangle {
+            height: 44px;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 6px;
+                Btn {
+                    text: Backend.sql-running ? Backend.t("sql.running") : Backend.t("sql.run");
+                    icon: "\u{E768}";
+                    kind: "primary";
+                    compact: true;
+                    enabled: Backend.connected && !Backend.sql-running;
+                    clicked => { Backend.run-sql(sql-input.text); }
+                }
+                if Backend.sql-running: Btn { text: Backend.t("cancel"); compact: true; clicked => { Backend.cancel-sql(); } }
+                Sep { vertical: true; }
+                Btn { text: Backend.t("sql.open"); icon: "\u{E8E5}"; kind: "ghost"; compact: true; clicked => { Backend.open-sql-file(); } }
+                Btn { text: Backend.t("sql.save"); icon: "\u{E74E}"; kind: "ghost"; compact: true; clicked => { Backend.save-sql-file(sql-input.text); } }
+                Rectangle { }
+                Btn { text: Backend.t("export"); icon: "\u{E896}"; kind: "ghost"; compact: true; enabled: Backend.sql-rows.length > 0; clicked => { Backend.export-sql-result(); } }
+            }
+            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            min-height: 120px;
+            background: Theme.surface2;
+            sql-input := TextInput {
+                x: 14px;
+                y: 10px;
+                width: parent.width - 28px;
+                height: parent.height - 20px;
+                text <=> Backend.sql-text;
+                font-size: 13px;
+                font-family: Theme.mono;
+                color: Theme.text;
+                wrap: TextWrap.no-wrap;
+                single-line: false;
+                selection-background-color: Theme.accent;
+                selection-foreground-color: #ffffff;
+                key-pressed(e) => {
+                    if (e.text == Key.Return && (e.modifiers.control || e.modifiers.shift)) {
+                        Backend.run-sql(self.text);
+                        return accept;
+                    }
+                    if (e.text == Key.F5) {
+                        Backend.run-sql(self.text);
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+        }
+        Rectangle {
+            height: 30px;
+            background: Theme.surface;
+            Rectangle { height: 1px; background: Theme.border; }
+            HorizontalLayout {
+                padding-left: 12px;
+                spacing: 8px;
+                if Backend.sql-running: Spinner { size: 14px; }
+                Text {
+                    text: Backend.sql-message;
+                    font-size: 12px;
+                    color: Backend.sql-error ? Theme.danger : Theme.text-dim;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+        ResultGrid {
+            vertical-stretch: 1;
+            min-height: 140px;
+            columns: Backend.sql-columns;
+            rows: Backend.sql-rows;
+            content-width: Backend.sql-content-width;
+            resized(i, w) => { Backend.sql-column-resized(i, w); }
+        }
+    }
+}
+
+component TopBar inherits Rectangle {
+    height: 48px;
+    background: Theme.sidebar;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 10px;
+        spacing: 10px;
+        Rectangle {
+            width: 28px;
+            height: 28px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 7px;
+            background: @linear-gradient(135deg, #4d8dff 0%, #6346e6 100%);
+            Icon { glyph: "\u{EA65}"; font-size: 14px; color: #ffffff; }
+        }
+        Text {
+            text: "Db Pro";
+            font-size: 15px;
+            font-weight: 700;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        Rectangle { width: 10px; }
+        Rectangle {
+            width: 168px;
+            height: 30px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 7px;
+            background: Theme.surface2;
+            border-width: 1px;
+            border-color: Theme.border;
+            HorizontalLayout {
+                padding: 2px;
+                spacing: 2px;
+                for label[i] in [Backend.t("view.data"), "SQL"]: Rectangle {
+                    border-radius: 5px;
+                    background: Backend.view == i ? Theme.accent : va.has-hover ? Theme.hover : transparent;
+                    Text {
+                        text: label;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: Backend.view == i ? #ffffff : Theme.text-dim;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    va := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Backend.view = i; } }
+                }
+            }
+        }
+        Rectangle { }
+        if Backend.connected: HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: Backend.conn-name;
+                font-size: 12px;
+                font-weight: 600;
+                color: Theme.text;
+                vertical-alignment: center;
+            }
+            EnvBadge { env: Backend.conn-env; y: (parent.height - self.height) / 2; }
+            if Backend.conn-read-only: Badge { text: Backend.t("badge.readonly"); tone: Theme.warning; y: (parent.height - self.height) / 2; }
+        }
+        IconBtn { glyph: "\u{E706}"; y: (parent.height - self.height) / 2; clicked => { Backend.toggle-theme(); } }
+        IconBtn { glyph: "\u{E774}"; y: (parent.height - self.height) / 2; clicked => { Backend.toggle-language(); } }
+        IconBtn { glyph: "\u{E946}"; y: (parent.height - self.height) / 2; clicked => { Backend.about(); } }
+    }
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+    // A production connection is unmistakable from the title bar down.
+    if Backend.connected && Backend.conn-env == 3: Rectangle {
+        y: 0px;
+        height: 3px;
+        background: Theme.danger;
+    }
+}
+
+component StatusBar inherits Rectangle {
+    height: 26px;
+    background: Theme.sidebar;
+    Rectangle { height: 1px; background: Theme.border; }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 10px;
+        if Backend.busy: Spinner { size: 12px; }
+        Text {
+            text: Backend.status;
+            font-size: 11px;
+            color: Theme.text-dim;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Rectangle { }
+        Text {
+            text: Backend.status-right;
+            font-size: 11px;
+            color: Theme.text-faint;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export { Backend, Theme }
+
+export component AppWindow inherits Window {
+    title: "Db Pro";
+    icon: @image-url("../assets/icon.png");
+    min-width: 960px;
+    min-height: 600px;
+    preferred-width: 1360px;
+    preferred-height: 820px;
+    background: Theme.bg;
+    default-font-size: 13px;
+
+    VerticalLayout {
+        TopBar { }
+        HorizontalLayout {
+            Explorer { width: 270px; }
+            Rectangle {
+                horizontal-stretch: 1;
+                if Backend.view == 0: DataView { }
+                if Backend.view == 1: SqlView { }
+            }
+        }
+        StatusBar { }
+    }
+
+    if Backend.dlg-confirm-open: ConfirmDialog { width: root.width; height: root.height; }
+    if Backend.conn-dlg-open: ConnectionDialog { width: root.width; height: root.height; }
+    if Backend.exp-open: ExportDialog { width: root.width; height: root.height; }
+    if Backend.detail-open: DetailDialog { width: root.width; height: root.height; }
+}

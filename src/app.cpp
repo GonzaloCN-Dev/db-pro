@@ -1,0 +1,1785 @@
+// Application controller: owns the Slint window, the active connection and every worker thread.
+// The UI thread never blocks: connector calls run on worker threads and post their results back with
+// slint::invoke_from_event_loop. Each data request carries a generation number; late answers are dropped.
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <fstream>
+#include <memory>
+#include <sstream>
+#include <thread>
+
+#include "app.h"
+#include "connectors/factory.h"
+#include "core/brand.h"
+#include "core/changes.h"
+#include "core/exporter.h"
+#include "core/filtertext.h"
+#include "core/sqlsafety.h"
+#include "i18n.h"
+#include "platform.h"
+#include "selftest.h"
+#include "store.h"
+
+using namespace dbp;
+using i18n::tr;
+using i18n::trf;
+using Clock = std::chrono::steady_clock;
+
+namespace {
+
+slint::SharedString S(const std::string &s) { return slint::SharedString(s); }
+std::string U(const slint::SharedString &s) { return std::string(std::string_view(s)); }
+
+std::string lower(std::string s)
+{
+    for (auto &c : s) c = (char)std::tolower((unsigned char)c);
+    return s;
+}
+
+// Keeps cells to one short line; the full value stays available in the detail viewer.
+std::string cell_text(const std::string &s, size_t max = 160)
+{
+    std::string out;
+    out.reserve(std::min(s.size(), max + 4));
+    size_t n = std::min(s.size(), max);
+    while (n < s.size() && n > 0 && ((unsigned char)s[n] & 0xC0) == 0x80) --n;
+    for (size_t k = 0; k < n; ++k) {
+        char c = s[k];
+        if (c == '\r') continue;
+        out += (c == '\n' || c == '\t') ? ' ' : c;
+    }
+    if (n < s.size()) out += "…";
+    return out;
+}
+
+// Slint reports modifier and function keys (Shift, F5, arrows...) as one-character strings in the
+// C0 control range or the private-use area. Those must never start a cell edit.
+bool starts_with_printable(const std::string &s)
+{
+    if (s.empty()) return false;
+    unsigned char b = (unsigned char)s[0];
+    if (b < 0x20 || b == 0x7f) return false;
+    if (b == 0xEF && s.size() >= 3) {
+        unsigned cp = ((b & 0x0F) << 12) | (((unsigned char)s[1] & 0x3F) << 6) | ((unsigned char)s[2] & 0x3F);
+        if (cp >= 0xE000 && cp <= 0xF8FF) return false;
+    }
+    if (b == 0xC2 && s.size() >= 2 && (unsigned char)s[1] < 0xA0) return false; // C1 controls
+    return true;
+}
+
+struct Engine {
+    const char *id;
+    const char *label;
+    int port;
+};
+const Engine kEngines[] = {
+    { "sqlite", "SQLite", 0 },
+    { "postgres", "PostgreSQL", 5432 },
+    { "mysql", "MySQL", 3306 },
+    { "mariadb", "MariaDB", 3306 },
+    { "mssql", "SQL Server", 1433 },
+    { "mongodb", "MongoDB", 27017 },
+};
+constexpr int kEngineCount = (int)(sizeof kEngines / sizeof kEngines[0]);
+const int kPageSizes[] = { 50, 100, 250, 500, 1000 };
+
+struct Node {
+    int kind = 0; // 0 connection, 1 database, 2 schema, 3 table, 4 view, 5 collection
+    std::string label, db, schema, name;
+    bool expanded = false, loaded = false, busy = false;
+    std::vector<Node> kids;
+    std::string key() const { return std::to_string(kind) + "\x1f" + db + "\x1f" + schema + "\x1f" + name; }
+};
+
+std::vector<Node> list_children(Connector &c, int kind, const std::string &db, const std::string &schema)
+{
+    std::vector<Node> out;
+    if (kind == 0) {
+        auto dbs = c.list_databases();
+        if (dbs.size() == 1) return list_children(c, 1, dbs[0].name, "");
+        for (auto &d : dbs) {
+            Node n;
+            n.kind = 1;
+            n.label = n.db = n.name = d.name;
+            out.push_back(std::move(n));
+        }
+        return out;
+    }
+    if (kind == 1 && c.caps().schemas) {
+        for (auto &s : c.list_schemas(db)) {
+            Node n;
+            n.kind = 2;
+            n.label = n.schema = n.name = s.name;
+            n.db = db;
+            out.push_back(std::move(n));
+        }
+        return out;
+    }
+    for (auto &o : c.list_tables(db, schema)) {
+        Node n;
+        n.kind = o.kind == ObjectKind::View ? 4 : o.kind == ObjectKind::Collection ? 5 : 3;
+        n.label = n.name = o.name;
+        n.db = db;
+        n.schema = schema;
+        out.push_back(std::move(n));
+    }
+    return out;
+}
+
+struct ColFilter {
+    std::string text;
+    int op = 0;
+    bool explicit_op = false;
+    std::string err;
+    bool active = false;
+};
+
+enum class TotalMode { Unknown, Estimated, Exact };
+
+} // namespace
+
+class Controller {
+public:
+    Controller() : ui_(AppWindow::create()), store_()
+    {
+        store_.load();
+        i18n::set_language(store_.settings.lang);
+        ui_->global<Theme>().set_dark(store_.settings.dark);
+        page_size_ = std::clamp(store_.settings.page_size, 10, 5000);
+        wire();
+        refresh_engines();
+        rebuild_tree();
+        B().set_page_size_index(page_size_index());
+        B().set_status(S(tr("ready")));
+        B().set_columns(columns_model_);
+        B().set_rows(rows_model_);
+        B().set_sql_columns(sql_columns_model_);
+        B().set_sql_rows(sql_rows_model_);
+        B().set_tree(tree_model_);
+        B().set_op_menu(op_menu_model_);
+        B().set_cd_engines(engines_model_);
+        B().set_status_right(S(std::string(brand::kName) + " " + brand::kVersion));
+    }
+
+    ~Controller() { *alive_ = false; }
+
+    int run()
+    {
+        std::unique_ptr<SelfTest> selftest;
+        if (const char *script = std::getenv("DBPRO_SELFTEST")) {
+            const char *out = std::getenv("DBPRO_SELFTEST_OUT");
+            selftest = std::make_unique<SelfTest>(ui_->window(), script, out ? out : ".");
+            selftest->start();
+        }
+        ui_->run();
+        shutdown();
+        return 0;
+    }
+
+private:
+    // ------------------------------------------------------------------ plumbing
+    const Backend &B() const { return ui_->global<Backend>(); }
+
+    template <class F> void post(F f)
+    {
+        slint::invoke_from_event_loop([alive = alive_, f = std::move(f)]() mutable {
+            if (*alive) f();
+        });
+    }
+    template <class F> void spawn(F f)
+    {
+        ++workers_;
+        std::thread([this, alive = alive_, f = std::move(f)]() mutable {
+            try {
+                f();
+            } catch (...) {
+            }
+            --workers_;
+        }).detach();
+    }
+
+    void shutdown()
+    {
+        store_.settings.page_size = page_size_;
+        store_.save();
+        if (fetch_cancel_) fetch_cancel_->cancel();
+        if (sql_cancel_) sql_cancel_->cancel();
+        if (exp_cancel_) exp_cancel_->cancel();
+        auto until = Clock::now() + std::chrono::seconds(2);
+        while (workers_ > 0 && Clock::now() < until) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    void set_status(const std::string &s) { B().set_status(S(s)); }
+
+    void set_busy()
+    {
+        B().set_busy(connecting_ || loading_ || saving_ || exporting_ || sql_running_);
+    }
+
+    // ------------------------------------------------------------------ dialogs
+    void confirm(const std::string &title, const std::string &text, const std::string &detail, const std::string &ok,
+                 const std::string &alt, bool danger, bool prod, std::function<void(int)> cb, bool info = false)
+    {
+        dlg_cb_ = std::move(cb);
+        B().set_dlg_title(S(title));
+        B().set_dlg_text(S(text));
+        B().set_dlg_detail(S(detail));
+        B().set_dlg_ok(S(ok));
+        B().set_dlg_alt(S(alt));
+        B().set_dlg_danger(danger);
+        B().set_dlg_prod(prod);
+        B().set_dlg_info(info);
+        B().set_dlg_confirm_open(true);
+    }
+    void notify(const std::string &title, const std::string &text)
+    {
+        confirm(title, text, "", tr("ok"), "", false, false, nullptr, true);
+    }
+    bool is_prod() const { return connected_ && profile_.env == (int)Env::Production; }
+
+    // ------------------------------------------------------------------ wiring
+    void wire()
+    {
+        auto &b = ui_->global<Backend>();
+        b.on_tr([](slint::SharedString key, int) { return S(tr(U(key))); });
+
+        b.on_toggle_theme([this] {
+            store_.settings.dark = !store_.settings.dark;
+            ui_->global<Theme>().set_dark(store_.settings.dark);
+            store_.save();
+        });
+        b.on_toggle_language([this] {
+            store_.settings.lang = store_.settings.lang == "es" ? "en" : "es";
+            i18n::set_language(store_.settings.lang);
+            B().set_lang_rev(B().get_lang_rev() + 1);
+            refresh_engines();
+            update_pending();
+            update_pager();
+            update_blocked();
+            if (!connected_) set_status(tr("ready"));
+            store_.save();
+        });
+        b.on_about([this] {
+            notify(tr("about.title"), trf("about.text", { brand::kVersion, brand::kCopyright }));
+        });
+
+        // explorer
+        b.on_tree_filter_changed([this] { rebuild_tree(); });
+        b.on_tree_clicked([this](int i) { tree_click(i); });
+        b.on_tree_toggled([](int) {});
+        b.on_tree_activated([](int) {});
+        b.on_tree_edit([this](int i) { open_connection_editor(i); });
+        b.on_tree_disconnect([this](int) { guard([this] { disconnect(); }); });
+        b.on_tree_delete([this](int i) { delete_profile(i); });
+        b.on_refresh_tree([this] { refresh_tree(); });
+        b.on_new_connection([this] { open_connection_editor(-1); });
+
+        // grid
+        b.on_sort_clicked([this](int c, bool shift) { guard([this, c, shift] { sort_by(c, shift); }); });
+        b.on_filter_edited([this](int c, slint::SharedString t) { filter_edited(c, U(t)); });
+        b.on_filter_accepted([this](int) { apply_filters(true); });
+        b.on_prepare_op_menu([this](int c) { prepare_op_menu(c); });
+        b.on_op_picked([this](int c, int i) { op_picked(c, i); });
+        b.on_clear_filters([this] { clear_filters(); });
+        b.on_cell_clicked([this](int r, int c) { cell_clicked(r, c); });
+        b.on_cell_double_clicked([this](int r, int c) { begin_edit(r, c, ""); });
+        b.on_begin_edit([this](int r, int c, slint::SharedString t) {
+            std::string text = U(t);
+            if (!text.empty() && !starts_with_printable(text)) return; // Shift, F-keys, ...
+            begin_edit(r, c, text);
+        });
+        b.on_commit_edit([this](slint::SharedString t, int mv) { commit_edit(U(t), mv); });
+        b.on_cancel_edit([this] { B().set_edit_row(-1); B().set_edit_col(-1); });
+        b.on_move_selection([this](int dr, int dc) { move_selection(dr, dc); });
+        b.on_set_null([this] { set_null(); });
+        b.on_save([this] { start_save(nullptr); });
+        b.on_discard([this] { discard_changes(); set_status(tr("status.discarded")); });
+        b.on_undo([this] { if (changes_.undo()) { refresh_rows(); update_pending(); } });
+        b.on_redo([this] { if (changes_.redo()) { refresh_rows(); update_pending(); } });
+        b.on_add_row([this] { add_row(false); });
+        b.on_duplicate_row([this] { add_row(true); });
+        b.on_delete_rows([this] { delete_row(); });
+        b.on_revert_cell([this] { revert_cell(); });
+        b.on_copy_cell([this] { copy_cell(); });
+        b.on_copy_row([this] { copy_row(); });
+        b.on_first_page([this] { guard([this] { req_.offset = 0; load_page(false); }); });
+        b.on_prev_page([this] { guard([this] { req_.offset = req_.offset > req_.limit ? req_.offset - req_.limit : 0; load_page(false); }); });
+        b.on_next_page([this] { guard([this] { req_.offset += req_.limit; load_page(false); }); });
+        b.on_reload([this] { guard([this] { load_page(true); }); });
+        b.on_count_total([this] { count_total(); });
+        b.on_export_data([this] { open_export(false); });
+        b.on_column_resized([this](int c, float w) { resize_column(widths_, c, w, false); });
+        b.on_page_size_picked([this](int i) {
+            guard([this, i] {
+                page_size_ = kPageSizes[std::clamp(i, 0, 4)];
+                req_.limit = (uint32_t)page_size_;
+                req_.offset = 0;
+                if (table_open_) load_page(false);
+            });
+            B().set_page_size_index(page_size_index());
+        });
+        b.on_toggle_query([this] { B().set_show_query(!B().get_show_query()); });
+        b.on_open_detail([this] { open_detail(); });
+
+        // SQL editor
+        b.on_run_sql([this](slint::SharedString t) { run_sql(U(t)); });
+        b.on_cancel_sql([this] { if (sql_cancel_) sql_cancel_->cancel(); });
+        b.on_sql_column_resized([this](int c, float w) { resize_column(sql_widths_, c, w, true); });
+        b.on_open_sql_file([this] { open_sql_file(); });
+        b.on_save_sql_file([this](slint::SharedString t) { save_sql_file(U(t)); });
+        b.on_export_sql_result([this] { open_export(true); });
+
+        // dialogs
+        b.on_dlg_result([this](int r) {
+            B().set_dlg_confirm_open(false);
+            auto cb = std::move(dlg_cb_);
+            dlg_cb_ = nullptr;
+            if (cb) cb(r);
+        });
+        b.on_cd_engine_picked([this](int i) { engine_picked(i); });
+        b.on_cd_browse([this] {
+            auto p = platform::open_dialog(tr("conn.file"), { { "SQLite", "*.db;*.sqlite;*.sqlite3;*.db3" }, { "*.*", "*.*" } });
+            if (p) B().set_cd_path(S(*p));
+        });
+        b.on_cd_test([this] { test_connection(); });
+        b.on_cd_save([this](bool connect) { save_connection(connect); });
+        b.on_cd_cancel([this] { B().set_conn_dlg_open(false); });
+        b.on_exp_start([this] { start_export(); });
+        b.on_exp_cancel([this] { if (exp_cancel_) exp_cancel_->cancel(); });
+    }
+
+    // ------------------------------------------------------------------ connection manager
+    void refresh_engines()
+    {
+        std::vector<slint::SharedString> v;
+        for (auto &e : kEngines) v.push_back(S(std::string(e.label) + (engine_available(e.id) ? "" : tr("engine.soon"))));
+        engines_model_->set_vector(v);
+    }
+
+    void engine_picked(int i)
+    {
+        i = std::clamp(i, 0, kEngineCount - 1);
+        int old_default = kEngines[std::clamp(B().get_cd_engine(), 0, kEngineCount - 1)].port;
+        std::string cur = U(B().get_cd_port());
+        B().set_cd_engine(i);
+        B().set_cd_file_based(std::string(kEngines[i].id) == "sqlite");
+        if (cur.empty() || cur == std::to_string(old_default)) B().set_cd_port(S(kEngines[i].port ? std::to_string(kEngines[i].port) : ""));
+        B().set_cd_message(S(""));
+    }
+
+    void open_connection_editor(int flat_index)
+    {
+        editing_id_.clear();
+        B().set_cd_message(S(""));
+        B().set_cd_testing(false);
+        if (flat_index >= 0 && flat_index < (int)flat_.size() && flat_[flat_index].profile >= 0) {
+            const Profile &p = store_.profiles[flat_[flat_index].profile];
+            editing_id_ = p.id;
+            B().set_conn_dlg_edit(true);
+            B().set_cd_name(S(p.name));
+            int ei = 0;
+            for (int k = 0; k < kEngineCount; ++k)
+                if (p.engine == kEngines[k].id) ei = k;
+            B().set_cd_engine(ei);
+            B().set_cd_file_based(p.engine == "sqlite");
+            B().set_cd_host(S(p.host));
+            B().set_cd_port(S(p.port ? std::to_string(p.port) : ""));
+            B().set_cd_database(S(p.database));
+            B().set_cd_user(S(p.user));
+            B().set_cd_password(S(""));
+            B().set_cd_path(S(p.path));
+            B().set_cd_env(p.env);
+            B().set_cd_read_only(p.read_only);
+            B().set_cd_tls(p.tls);
+            B().set_cd_trust(p.trust_server_cert);
+        } else {
+            B().set_conn_dlg_edit(false);
+            B().set_cd_name(S(""));
+            B().set_cd_engine(0);
+            B().set_cd_file_based(true);
+            B().set_cd_host(S("localhost"));
+            B().set_cd_port(S(""));
+            B().set_cd_database(S(""));
+            B().set_cd_user(S(""));
+            B().set_cd_password(S(""));
+            B().set_cd_path(S(""));
+            B().set_cd_env(0);
+            B().set_cd_read_only(false);
+            B().set_cd_tls(true);
+            B().set_cd_trust(false);
+        }
+        B().set_conn_dlg_open(true);
+    }
+
+    // Reads the dialog into a profile; returns an error text (empty when valid).
+    std::string read_profile(Profile &p)
+    {
+        int ei = std::clamp(B().get_cd_engine(), 0, kEngineCount - 1);
+        p = Profile();
+        p.id = editing_id_.empty() ? Store::new_id() : editing_id_;
+        p.name = U(B().get_cd_name());
+        p.engine = kEngines[ei].id;
+        p.env = std::clamp(B().get_cd_env(), 0, 3);
+        p.read_only = B().get_cd_read_only();
+        p.tls = B().get_cd_tls();
+        p.trust_server_cert = p.tls && B().get_cd_trust();
+        while (!p.name.empty() && p.name.back() == ' ') p.name.pop_back();
+        if (p.name.empty()) return tr("conn.need-name");
+        if (!engine_available(p.engine)) return tr("conn.engine-unavailable");
+        if (p.engine == "sqlite") {
+            p.path = U(B().get_cd_path());
+            if (p.path.empty()) return tr("conn.need-path");
+            std::error_code ec;
+            if (!std::filesystem::exists(std::filesystem::u8path(p.path), ec)) return tr("conn.file-missing");
+        } else {
+            p.host = U(B().get_cd_host());
+            if (p.host.empty()) return tr("conn.need-host");
+            std::string port = U(B().get_cd_port());
+            if (!port.empty()) {
+                char *end = nullptr;
+                long n = std::strtol(port.c_str(), &end, 10);
+                if (*end || n < 1 || n > 65535) return tr("conn.bad-port");
+                p.port = (int)n;
+            }
+            p.database = U(B().get_cd_database());
+            p.user = U(B().get_cd_user());
+        }
+        return {};
+    }
+
+    std::string password_for(const Profile &p, const std::string &typed)
+    {
+        if (!typed.empty()) return typed;
+        auto saved = platform::cred_read(std::string(brand::kCredentialPrefix) + p.id);
+        return saved ? *saved : std::string();
+    }
+
+    void test_connection()
+    {
+        Profile p;
+        std::string err = read_profile(p);
+        auto show = [this](const std::string &m, bool bad) {
+            B().set_cd_message(S(m));
+            B().set_cd_message_error(bad);
+        };
+        if (!err.empty()) { show(err, true); return; }
+        std::string pwd = password_for(p, U(B().get_cd_password()));
+        B().set_cd_testing(true);
+        show("", false);
+        spawn([this, p, pwd] {
+            try {
+                auto c = make_connector(p, pwd);
+                std::string info = c->server_info();
+                c->close();
+                post([this, info] {
+                    B().set_cd_testing(false);
+                    B().set_cd_message(S(trf("conn.test-ok", { info })));
+                    B().set_cd_message_error(false);
+                });
+            } catch (const std::exception &e) {
+                std::string m = e.what();
+                post([this, m] {
+                    B().set_cd_testing(false);
+                    B().set_cd_message(S(m));
+                    B().set_cd_message_error(true);
+                });
+            }
+        });
+    }
+
+    void save_connection(bool connect_after)
+    {
+        Profile p;
+        std::string err = read_profile(p);
+        if (!err.empty()) {
+            B().set_cd_message(S(err));
+            B().set_cd_message_error(true);
+            return;
+        }
+        std::string pwd = U(B().get_cd_password());
+        if (!pwd.empty() && !platform::cred_write(std::string(brand::kCredentialPrefix) + p.id, p.user, pwd)) {
+            B().set_cd_message(S(tr("conn.pwd-failed")));
+            B().set_cd_message_error(true);
+            return;
+        }
+        store_.upsert(p);
+        store_.save();
+        B().set_conn_dlg_open(false);
+        rebuild_tree();
+        if (connect_after) guard([this, p] { connect(p); });
+    }
+
+    void delete_profile(int flat_index)
+    {
+        if (flat_index < 0 || flat_index >= (int)flat_.size() || flat_[flat_index].profile < 0) return;
+        Profile p = store_.profiles[flat_[flat_index].profile];
+        confirm(tr("tree.delete-title"), trf("tree.delete-text", { p.name }), "", tr("delete"), "", true, false, [this, p](int r) {
+            if (r != 1) return;
+            if (connected_ && profile_.id == p.id) disconnect();
+            platform::cred_delete(std::string(brand::kCredentialPrefix) + p.id);
+            store_.remove(p.id);
+            store_.save();
+            rebuild_tree();
+        });
+    }
+
+    // ------------------------------------------------------------------ connect / explorer
+    void connect(const Profile &p)
+    {
+        if (connecting_) return;
+        disconnect();
+        connecting_ = true;
+        connecting_id_ = p.id;
+        uint64_t cg = ++conn_gen_;
+        set_status(trf("status.connecting", { p.name }));
+        set_busy();
+        rebuild_tree();
+        std::string pwd = password_for(p, "");
+        spawn([this, p, pwd, cg] {
+            try {
+                std::shared_ptr<Connector> c = make_connector(p, pwd);
+                std::string info = c->server_info();
+                auto kids = list_children(*c, 0, "", "");
+                post([this, p, c, info, cg, kids = std::move(kids)]() mutable {
+                    if (cg != conn_gen_) { c->close(); return; }
+                    connecting_ = false;
+                    connecting_id_.clear();
+                    conn_ = c;
+                    caps_ = c->caps();
+                    profile_ = p;
+                    connected_ = true;
+                    root_ = Node();
+                    root_.label = p.name;
+                    root_.expanded = root_.loaded = true;
+                    root_.kids = std::move(kids);
+                    B().set_connected(true);
+                    B().set_conn_name(S(p.name));
+                    B().set_conn_env(p.env);
+                    B().set_conn_read_only(p.read_only);
+                    B().set_server_info(S(info));
+                    set_status(trf("status.connected", { p.name }) + " — " + info);
+                    set_busy();
+                    rebuild_tree();
+                });
+            } catch (const std::exception &e) {
+                std::string m = e.what();
+                post([this, cg, m] {
+                    if (cg != conn_gen_) return;
+                    connecting_ = false;
+                    connecting_id_.clear();
+                    set_status(trf("status.connect-failed", { m }));
+                    set_busy();
+                    rebuild_tree();
+                    notify(tr("status.disconnected"), trf("status.connect-failed", { m }));
+                });
+            }
+        });
+    }
+
+    void disconnect()
+    {
+        if (!connected_) return;
+        ++conn_gen_;
+        if (fetch_cancel_) fetch_cancel_->cancel();
+        if (sql_cancel_) sql_cancel_->cancel();
+        ++fetch_gen_;
+        auto c = conn_;
+        conn_.reset();
+        connected_ = false;
+        table_open_ = false;
+        loading_ = false;
+        changes_.clear();
+        rows_.clear();
+        root_ = Node();
+        spawn([c] { c->close(); });
+        B().set_connected(false);
+        B().set_has_table(false);
+        B().set_conn_name(S(""));
+        B().set_conn_env(0);
+        B().set_conn_read_only(false);
+        B().set_server_info(S(""));
+        B().set_edit_row(-1);
+        clear_table_ui();
+        set_status(tr("status.disconnected"));
+        set_busy();
+        rebuild_tree();
+    }
+
+    void refresh_tree()
+    {
+        if (!connected_ || root_.busy) return;
+        root_.busy = true;
+        rebuild_tree();
+        uint64_t cg = conn_gen_;
+        auto c = conn_;
+        spawn([this, c, cg] {
+            try {
+                auto kids = list_children(*c, 0, "", "");
+                post([this, cg, kids = std::move(kids)]() mutable {
+                    if (cg != conn_gen_) return;
+                    root_.kids = std::move(kids);
+                    root_.busy = false;
+                    rebuild_tree();
+                });
+            } catch (const std::exception &e) {
+                std::string m = e.what();
+                post([this, cg, m] {
+                    if (cg != conn_gen_) return;
+                    root_.busy = false;
+                    rebuild_tree();
+                    set_status(m);
+                });
+            }
+        });
+    }
+
+    struct Flat {
+        int profile = -1;
+        std::string key; // node key for non-connection rows
+    };
+
+    Node *find_node(Node &n, const std::string &key)
+    {
+        if (n.kind != 0 && n.key() == key) return &n;
+        for (auto &k : n.kids)
+            if (Node *f = find_node(k, key)) return f;
+        return nullptr;
+    }
+
+    static bool node_matches(const Node &n, const std::string &f)
+    {
+        if (f.empty()) return true;
+        if (n.kind >= 3) return lower(n.label).find(f) != std::string::npos;
+        for (auto &k : n.kids)
+            if (node_matches(k, f)) return true;
+        return lower(n.label).find(f) != std::string::npos;
+    }
+
+    void add_nodes(const Node &parent, int depth, const std::string &f, std::vector<TreeRowUi> &rows)
+    {
+        for (auto &k : parent.kids) {
+            if (!f.empty() && !node_matches(k, f)) continue;
+            TreeRowUi r {};
+            r.label = S(k.label);
+            r.depth = depth;
+            r.kind = k.kind;
+            r.expanded = k.expanded || !f.empty();
+            r.busy = k.busy;
+            r.connected = true;
+            r.active = table_open_ && k.kind >= 3 && k.db == table_ref_.database && k.schema == table_ref_.schema && k.name == table_ref_.name;
+            rows.push_back(r);
+            flat_.push_back({ -1, k.key() });
+            if (k.kind <= 2 && (k.expanded || !f.empty())) add_nodes(k, depth + 1, f, rows);
+        }
+    }
+
+    void rebuild_tree()
+    {
+        flat_.clear();
+        std::vector<TreeRowUi> rows;
+        std::string f = lower(U(B().get_tree_filter()));
+        for (size_t pi = 0; pi < store_.profiles.size(); ++pi) {
+            const Profile &p = store_.profiles[pi];
+            bool act = connected_ && p.id == profile_.id;
+            TreeRowUi r {};
+            r.label = S(p.name);
+            r.depth = 0;
+            r.kind = 0;
+            r.expanded = act && root_.expanded;
+            r.busy = connecting_id_ == p.id || (act && root_.busy);
+            r.env = p.env;
+            r.connected = act;
+            rows.push_back(r);
+            flat_.push_back({ (int)pi, "" });
+            if (act && root_.expanded) add_nodes(root_, 1, f, rows);
+        }
+        tree_model_->set_vector(rows);
+    }
+
+    void tree_click(int i)
+    {
+        if (i < 0 || i >= (int)flat_.size()) return;
+        const Flat fl = flat_[i];
+        if (fl.profile >= 0) {
+            const Profile &p = store_.profiles[fl.profile];
+            if (connected_ && p.id == profile_.id) {
+                root_.expanded = !root_.expanded;
+                rebuild_tree();
+            } else {
+                Profile copy = p;
+                guard([this, copy] { connect(copy); });
+            }
+            return;
+        }
+        Node *n = find_node(root_, fl.key);
+        if (!n) return;
+        if (n->kind >= 3) {
+            TableRef ref { n->db, n->schema, n->name };
+            open_table(ref);
+            return;
+        }
+        n->expanded = !n->expanded;
+        if (n->expanded && !n->loaded && !n->busy) {
+            n->busy = true;
+            std::string key = n->key();
+            int kind = n->kind;
+            std::string db = n->db, schema = n->schema;
+            uint64_t cg = conn_gen_;
+            auto c = conn_;
+            spawn([this, c, cg, key, kind, db, schema] {
+                try {
+                    auto kids = list_children(*c, kind, db, schema);
+                    post([this, cg, key, kids = std::move(kids)]() mutable {
+                        if (cg != conn_gen_) return;
+                        if (Node *t = find_node(root_, key)) {
+                            t->kids = std::move(kids);
+                            t->loaded = true;
+                            t->busy = false;
+                        }
+                        rebuild_tree();
+                    });
+                } catch (const std::exception &e) {
+                    std::string m = e.what();
+                    post([this, cg, key, m] {
+                        if (cg != conn_gen_) return;
+                        if (Node *t = find_node(root_, key)) { t->busy = false; t->expanded = false; }
+                        rebuild_tree();
+                        set_status(m);
+                    });
+                }
+            });
+        }
+        rebuild_tree();
+    }
+
+    // ------------------------------------------------------------------ unsaved-change guard
+    void guard(std::function<void()> proceed)
+    {
+        if (changes_.empty() || !table_open_) { proceed(); return; }
+        confirm(tr("unsaved.title"), trf("unsaved.text", { std::to_string(changes_.affected_rows()) }), "", tr("save"), tr("unsaved.discard"), false, false,
+                [this, proceed](int r) {
+                    if (r == 2) { discard_changes(); proceed(); }
+                    else if (r == 1) start_save(proceed);
+                });
+    }
+
+    void discard_changes()
+    {
+        changes_.clear();
+        B().set_edit_row(-1);
+        B().set_edit_col(-1);
+        refresh_rows();
+        update_pending();
+    }
+
+    // ------------------------------------------------------------------ table loading
+    int page_size_index() const
+    {
+        for (int k = 0; k < 5; ++k)
+            if (kPageSizes[k] == page_size_) return k;
+        return 1;
+    }
+
+    void clear_table_ui()
+    {
+        columns_model_->set_vector({});
+        rows_model_->set_vector({});
+        B().set_content_width(0);
+        B().set_pending_count(0);
+        B().set_table_title(S(""));
+        B().set_query_text(S(""));
+        B().set_filter_error(S(""));
+        B().set_filter_count(0);
+        B().set_sel_row(-1);
+        B().set_sel_col(-1);
+    }
+
+    void open_table(const TableRef &ref)
+    {
+        if (!connected_) return;
+        guard([this, ref] {
+            uint64_t cg = conn_gen_;
+            uint64_t fg = ++fetch_gen_;
+            if (fetch_cancel_) fetch_cancel_->cancel();
+            loading_ = true;
+            B().set_loading(true);
+            set_busy();
+            set_status(tr("loading"));
+            auto c = conn_;
+            spawn([this, c, ref, cg, fg] {
+                try {
+                    TableMeta m = c->table_meta(ref);
+                    post([this, cg, fg, m = std::move(m)]() mutable {
+                        if (cg != conn_gen_ || fg != fetch_gen_) return;
+                        meta_ = std::move(m);
+                        table_ref_ = meta_.table;
+                        table_open_ = true;
+                        req_ = PageRequest();
+                        req_.limit = (uint32_t)page_size_;
+                        filters_.assign(meta_.columns.size(), ColFilter());
+                        applied_sig_.clear();
+                        total_mode_ = TotalMode::Unknown;
+                        total_ = 0;
+                        if (meta_.estimated_rows >= 0) { total_mode_ = TotalMode::Estimated; total_ = (uint64_t)meta_.estimated_rows; }
+                        changes_.clear();
+                        rows_.clear();
+                        widths_.clear();
+                        for (auto &col : meta_.columns) widths_.push_back(default_width(col));
+                        editable_ = meta_.edit.editable && caps_.edit && !profile_.read_only && !meta_.is_view;
+                        B().set_has_table(true);
+                        B().set_table_title(S(meta_.table.label()));
+                        B().set_sel_row(-1);
+                        B().set_sel_col(-1);
+                        B().set_edit_row(-1);
+                        update_blocked();
+                        refresh_columns();
+                        rebuild_tree();
+                        load_page(false, true);
+                    });
+                } catch (const std::exception &e) {
+                    std::string m = e.what();
+                    post([this, cg, fg, m] {
+                        if (cg != conn_gen_ || fg != fetch_gen_) return;
+                        loading_ = false;
+                        B().set_loading(false);
+                        set_busy();
+                        set_status(trf("status.query-failed", { m }));
+                    });
+                }
+            });
+        });
+    }
+
+    static double default_width(const ColumnInfo &c)
+    {
+        double w = 150;
+        switch (c.cls) {
+        case TypeClass::Integer: w = 90; break;
+        case TypeClass::Decimal:
+        case TypeClass::Float: w = 110; break;
+        case TypeClass::Bool: w = 70; break;
+        case TypeClass::Date: w = 110; break;
+        case TypeClass::Time: w = 90; break;
+        case TypeClass::DateTime: w = 160; break;
+        case TypeClass::Uuid: w = 280; break;
+        case TypeClass::Json: w = 200; break;
+        case TypeClass::Text: w = 180; break;
+        case TypeClass::LongText: w = 240; break;
+        case TypeClass::Binary: w = 120; break;
+        default: break;
+        }
+        return std::max(w, (double)c.name.size() * 8.0 + 44.0);
+    }
+
+    void update_blocked()
+    {
+        std::string r;
+        if (table_open_) {
+            if (meta_.is_view) r = tr("blocked.view");
+            else if (profile_.read_only) r = tr("blocked.read-only");
+            else if (!meta_.edit.editable) r = meta_.edit.key_columns.empty() ? tr("blocked.no-key") : meta_.edit.blocked_reason;
+        }
+        B().set_editable(editable_);
+        B().set_blocked_reason(S(r));
+    }
+
+    void load_page(bool reset_total, bool first = false)
+    {
+        if (!table_open_ || !connected_) return;
+        if (reset_total && applied_filter_count_ >= 0) {
+            total_mode_ = (req_.filter.empty() && meta_.estimated_rows >= 0) ? TotalMode::Estimated : TotalMode::Unknown;
+            total_ = (total_mode_ == TotalMode::Estimated) ? (uint64_t)meta_.estimated_rows : 0;
+        }
+        uint64_t fg = ++fetch_gen_;
+        if (fetch_cancel_ && !first) fetch_cancel_->cancel();
+        fetch_cancel_ = std::make_shared<CancelToken>();
+        auto tok = fetch_cancel_;
+        auto c = conn_;
+        TableMeta meta = meta_;
+        PageRequest req = req_;
+        loading_ = true;
+        B().set_loading(true);
+        set_busy();
+        spawn([this, c, meta = std::move(meta), req = std::move(req), tok, fg] {
+            try {
+                Page p = c->fetch_page(meta, req, tok);
+                post([this, fg, p = std::move(p)]() mutable { on_page(fg, std::move(p)); });
+            } catch (const DbError &e) {
+                std::string m = e.what();
+                bool cancelled = e.kind == ErrKind::Cancelled;
+                post([this, fg, m, cancelled] {
+                    if (fg != fetch_gen_) return;
+                    loading_ = false;
+                    B().set_loading(false);
+                    set_busy();
+                    set_status(cancelled ? tr("status.cancelled") : trf("status.query-failed", { m }));
+                });
+            } catch (const std::exception &e) {
+                std::string m = e.what();
+                post([this, fg, m] {
+                    if (fg != fetch_gen_) return;
+                    loading_ = false;
+                    B().set_loading(false);
+                    set_busy();
+                    set_status(trf("status.query-failed", { m }));
+                });
+            }
+        });
+    }
+
+    void on_page(uint64_t fg, Page p)
+    {
+        if (fg != fetch_gen_) return; // a newer request superseded this one
+        loading_ = false;
+        B().set_loading(false);
+        set_busy();
+        if (p.rows.empty() && req_.offset > 0) {
+            req_.offset = req_.offset > req_.limit ? req_.offset - req_.limit : 0;
+            load_page(false);
+            return;
+        }
+        rows_ = std::move(p.rows);
+        has_more_ = p.has_more;
+        changes_.clear();
+        if (!p.has_more) {
+            total_mode_ = TotalMode::Exact;
+            total_ = req_.offset + rows_.size();
+        }
+        B().set_edit_row(-1);
+        B().set_edit_col(-1);
+        B().set_sel_row(rows_.empty() ? -1 : 0);
+        if (B().get_sel_col() < 0 && !meta_.columns.empty()) B().set_sel_col(0);
+        B().set_query_text(S(p.generated));
+        scroll_to_row(0);
+        refresh_rows();
+        update_pending();
+        update_pager();
+        set_status(trf("status.loaded", { i18n::with_commas(rows_.size()), std::to_string(p.elapsed_ms) }));
+    }
+
+    void scroll_to_row(int r)
+    {
+        B().set_scroll_row(r);
+        B().set_scroll_token(B().get_scroll_token() + 1);
+    }
+
+    void update_pager()
+    {
+        if (!table_open_) return;
+        std::string range = rows_.empty() ? tr("pager.empty")
+                                          : trf("pager.range", { i18n::with_commas(req_.offset + 1), i18n::with_commas(req_.offset + rows_.size()) });
+        B().set_range_text(S(range));
+        std::string total;
+        switch (total_mode_) {
+        case TotalMode::Unknown: total = counting_ ? tr("pager.counting") : tr("pager.total-unknown"); break;
+        case TotalMode::Estimated: total = trf("pager.total-est", { i18n::with_commas(total_) }); break;
+        case TotalMode::Exact: total = trf(applied_filter_count_ > 0 ? "pager.filtered-exact" : "pager.total-exact", { i18n::with_commas(total_) }); break;
+        }
+        B().set_total_text(S(total));
+        B().set_can_count(total_mode_ != TotalMode::Exact && !counting_);
+        B().set_page_index((int)(req_.limit ? req_.offset / req_.limit : 0));
+        B().set_has_more(has_more_);
+    }
+
+    void count_total()
+    {
+        if (!table_open_ || counting_) return;
+        counting_ = true;
+        update_pager();
+        uint64_t fg = fetch_gen_;
+        auto tok = std::make_shared<CancelToken>();
+        count_cancel_ = tok;
+        auto c = conn_;
+        TableMeta meta = meta_;
+        FilterGroup f = req_.filter;
+        spawn([this, c, meta = std::move(meta), f = std::move(f), tok, fg] {
+            try {
+                uint64_t n = c->count(meta, f, tok);
+                post([this, n, fg] {
+                    counting_ = false;
+                    if (fg == fetch_gen_) { total_mode_ = TotalMode::Exact; total_ = n; }
+                    update_pager();
+                });
+            } catch (const std::exception &e) {
+                std::string m = e.what();
+                post([this, m] {
+                    counting_ = false;
+                    update_pager();
+                    set_status(trf("status.query-failed", { m }));
+                });
+            }
+        });
+    }
+
+    // ------------------------------------------------------------------ columns / rows models
+    static const char *type_class_label(const ColumnInfo &c) { return c.native_type.empty() ? "" : c.native_type.c_str(); }
+
+    std::vector<std::string> ops_labels_cache_;
+
+    std::vector<Op> col_ops(size_t ci) const { return ops_for(meta_.columns[ci], caps_); }
+
+    ColumnUi make_col_ui(size_t ci)
+    {
+        const ColumnInfo &col = meta_.columns[ci];
+        ColumnUi u {};
+        u.name = S(col.name);
+        u.type_label = S(type_class_label(col));
+        double x = 0;
+        for (size_t k = 0; k < ci; ++k) x += widths_[k];
+        u.x = (float)x;
+        u.width = (float)widths_[ci];
+        u.pk = col.is_pk();
+        u.sort = 0;
+        u.sort_order = 0;
+        for (size_t k = 0; k < req_.sort.size(); ++k)
+            if (req_.sort[k].column == col.name) {
+                u.sort = req_.sort[k].desc ? 2 : 1;
+                u.sort_order = req_.sort.size() > 1 ? (int)k + 1 : 0;
+            }
+        u.align_right = is_numeric(col.cls);
+        u.filterable = col.cls != TypeClass::Binary;
+        const ColFilter &f = filters_[ci];
+        auto ops = col_ops(ci);
+        u.filter_text = S(f.text);
+        u.filter_op = S(ops.empty() ? "" : op_symbol(ops[std::clamp(f.op, 0, (int)ops.size() - 1)]));
+        u.filter_state = !f.err.empty() ? 2 : f.active ? 1 : 0;
+        u.filter_tip = S(f.err);
+        return u;
+    }
+
+    void refresh_columns()
+    {
+        std::vector<ColumnUi> v;
+        double total = 0;
+        for (size_t ci = 0; ci < meta_.columns.size(); ++ci) {
+            v.push_back(make_col_ui(ci));
+            total += widths_[ci];
+        }
+        columns_model_->set_vector(v);
+        B().set_content_width((float)total);
+    }
+
+    void refresh_col(size_t ci)
+    {
+        if (ci < meta_.columns.size() && (int)ci < (int)columns_model_->row_count()) columns_model_->set_row_data((int)ci, make_col_ui(ci));
+    }
+
+    void resize_column(std::vector<double> &widths, int ci, float w, bool sql)
+    {
+        if (ci < 0 || ci >= (int)widths.size()) return;
+        widths[ci] = std::max(48.0f, w);
+        auto &model = sql ? sql_columns_model_ : columns_model_;
+        double x = 0;
+        for (int k = 0; k < (int)widths.size() && k < (int)model->row_count(); ++k) {
+            ColumnUi u = *model->row_data(k);
+            u.x = (float)x;
+            u.width = (float)widths[k];
+            model->set_row_data(k, u);
+            x += widths[k];
+        }
+        if (sql) B().set_sql_content_width((float)x);
+        else B().set_content_width((float)x);
+    }
+
+    static CellUi make_cell(const Value &v, bool edited)
+    {
+        CellUi c {};
+        c.edited = edited;
+        switch (v.kind) {
+        case Value::Kind::Null: c.text = S("NULL"); c.kind = 1; break;
+        case Value::Kind::Default: c.text = S("DEFAULT"); c.kind = 2; break;
+        case Value::Kind::Missing: c.text = S("—"); c.kind = 3; break;
+        case Value::Kind::Bytes: c.text = S(cell_text(v.display())); c.kind = 4; break;
+        default: c.text = S(cell_text(v.display())); c.kind = 0; break;
+        }
+        return c;
+    }
+
+    RowUi make_row(size_t r)
+    {
+        RowUi row {};
+        auto cells = std::make_shared<slint::VectorModel<CellUi>>();
+        size_t nc = meta_.columns.size();
+        for (size_t c = 0; c < nc; ++c) cells->push_back(make_cell(changes_.current(rows_, r, c), changes_.is_edited(r, c)));
+        row.cells = cells;
+        bool fresh = changes_.is_new(rows_, r);
+        row.state = fresh ? 1 : changes_.is_deleted(r) ? 2 : 0;
+        row.label = S(fresh ? "" : std::to_string(req_.offset + r + 1));
+        return row;
+    }
+
+    void refresh_rows()
+    {
+        std::vector<RowUi> v;
+        size_t n = changes_.row_count(rows_);
+        v.reserve(n);
+        for (size_t r = 0; r < n; ++r) v.push_back(make_row(r));
+        rows_model_->set_vector(v);
+    }
+
+    void refresh_row(size_t r)
+    {
+        if ((int)r < (int)rows_model_->row_count()) rows_model_->set_row_data((int)r, make_row(r));
+    }
+
+    void update_pending()
+    {
+        size_t aff = changes_.affected_rows();
+        B().set_pending_count((int)aff);
+        size_t ins = changes_.insert_count(), del = changes_.delete_count();
+        size_t edited = aff > ins + del ? aff - ins - del : 0;
+        B().set_pending_text(S(trf("pending.summary", { std::to_string(aff), std::to_string(edited), std::to_string(ins), std::to_string(del) })));
+        B().set_can_undo(changes_.can_undo());
+        B().set_can_redo(changes_.can_redo());
+    }
+
+    // ------------------------------------------------------------------ sorting and filtering
+    void sort_by(int ci, bool shift)
+    {
+        if (!table_open_ || ci < 0 || ci >= (int)meta_.columns.size()) return;
+        const std::string &name = meta_.columns[ci].name;
+        auto it = std::find_if(req_.sort.begin(), req_.sort.end(), [&](const SortKey &k) { return k.column == name; });
+        if (shift) {
+            if (it == req_.sort.end()) req_.sort.push_back({ name, false });
+            else if (!it->desc) it->desc = true;
+            else req_.sort.erase(it);
+        } else {
+            bool had = it != req_.sort.end();
+            bool desc = had && it->desc;
+            bool asc = had && !it->desc;
+            req_.sort.clear();
+            if (!had) req_.sort.push_back({ name, false });
+            else if (asc) req_.sort.push_back({ name, true });
+            else if (desc) {}
+        }
+        req_.offset = 0;
+        refresh_columns();
+        load_page(false);
+    }
+
+    void filter_edited(int ci, const std::string &text)
+    {
+        if (!table_open_ || ci < 0 || ci >= (int)filters_.size()) return;
+        if (!changes_.empty()) {
+            set_status(tr("unsaved.title") + ": " + tr("save") + " / " + tr("discard"));
+            refresh_col(ci);
+            return;
+        }
+        filters_[ci].text = text;
+        evaluate_filters();
+        filter_timer_.start(slint::TimerMode::SingleShot, std::chrono::milliseconds(400), [this] { apply_filters(false); });
+    }
+
+    // Parses every filter box; returns the combined group, or nullopt when any box is invalid.
+    bool evaluate_filters()
+    {
+        FilterGroup g;
+        std::string err_msg;
+        bool ok = true;
+        std::string sig;
+        for (size_t ci = 0; ci < filters_.size(); ++ci) {
+            ColFilter &f = filters_[ci];
+            f.err.clear();
+            f.active = false;
+            auto ops = col_ops(ci);
+            if (!ops.empty()) {
+                Op op = ops[std::clamp(f.op, 0, (int)ops.size() - 1)];
+                bool needs_value = op_arity(op) != 0;
+                if (needs_value || f.explicit_op) {
+                    std::string err;
+                    auto cond = make_condition(meta_.columns[ci], op, f.text, &err);
+                    if (cond) {
+                        g.conds.push_back(*cond);
+                        f.active = true;
+                        sig += meta_.columns[ci].name + "\x1f" + std::to_string((int)op) + "\x1f" + f.text + "\x1e";
+                    } else if (!err.empty()) {
+                        f.err = err;
+                        ok = false;
+                        if (err_msg.empty()) err_msg = trf("filter.invalid", { meta_.columns[ci].name, err });
+                    }
+                }
+            }
+            refresh_col(ci);
+        }
+        B().set_filter_error(S(err_msg));
+        B().set_filter_count(g.count());
+        pending_group_ = g;
+        pending_sig_ = sig;
+        return ok;
+    }
+
+    void apply_filters(bool force)
+    {
+        if (!table_open_) return;
+        filter_timer_.stop();
+        if (!evaluate_filters()) return;
+        if (!force && pending_sig_ == applied_sig_) return;
+        if (pending_sig_ == applied_sig_ && force) { /* Enter on unchanged text reloads */ }
+        applied_sig_ = pending_sig_;
+        req_.filter = pending_group_;
+        applied_filter_count_ = pending_group_.count();
+        req_.offset = 0;
+        load_page(true);
+    }
+
+    void clear_filters()
+    {
+        if (!table_open_) return;
+        if (!changes_.empty()) { set_status(tr("unsaved.title")); return; }
+        for (auto &f : filters_) f = ColFilter();
+        apply_filters(true);
+    }
+
+    void prepare_op_menu(int ci)
+    {
+        std::vector<slint::SharedString> labels;
+        menu_ops_.clear();
+        menu_col_ = ci;
+        if (!table_open_ || ci < 0 || ci >= (int)meta_.columns.size()) { op_menu_model_->set_vector(labels); return; }
+        labels.push_back(S("—  (" + tr("discard") + ")"));
+        menu_ops_ = col_ops(ci);
+        for (Op o : menu_ops_) labels.push_back(S(std::string(op_symbol(o)) + "   " + op_label(o)));
+        op_menu_model_->set_vector(labels);
+    }
+
+    void op_picked(int ci, int idx)
+    {
+        if (!table_open_ || ci != menu_col_ || ci < 0 || ci >= (int)filters_.size()) return;
+        if (!changes_.empty()) { set_status(tr("unsaved.title")); return; }
+        ColFilter &f = filters_[ci];
+        if (idx <= 0) {
+            f = ColFilter();
+        } else if (idx - 1 < (int)menu_ops_.size()) {
+            auto ops = col_ops(ci);
+            Op chosen = menu_ops_[idx - 1];
+            for (size_t k = 0; k < ops.size(); ++k)
+                if (ops[k] == chosen) f.op = (int)k;
+            f.explicit_op = true;
+            if (op_arity(chosen) == 0) f.text.clear();
+        }
+        apply_filters(true);
+    }
+
+    // ------------------------------------------------------------------ cell editing
+    size_t visible_rows() const { return changes_.row_count(rows_); }
+
+    void cell_clicked(int r, int c)
+    {
+        if (B().get_edit_row() >= 0) commit_edit(U(B().get_edit_text()), 0);
+        B().set_sel_row(r);
+        B().set_sel_col(c);
+    }
+
+    void move_selection(int dr, int dc)
+    {
+        int rows = (int)visible_rows(), cols = (int)meta_.columns.size();
+        if (rows == 0 || cols == 0) return;
+        int r = std::clamp(B().get_sel_row() + dr, 0, rows - 1);
+        int c = std::clamp(B().get_sel_col() + dc, 0, cols - 1);
+        if (B().get_sel_row() < 0) r = 0;
+        if (B().get_sel_col() < 0) c = 0;
+        B().set_sel_row(r);
+        B().set_sel_col(c);
+        scroll_to_row(r);
+    }
+
+    void begin_edit(int r, int c, const std::string &initial)
+    {
+        if (!table_open_ || r < 0 || c < 0 || r >= (int)visible_rows() || c >= (int)meta_.columns.size()) return;
+        B().set_sel_row(r);
+        B().set_sel_col(c);
+        if (!editable_) {
+            std::string why = B().get_blocked_reason().size() ? U(B().get_blocked_reason()) : tr("edit.not-editable");
+            set_status(why);
+            return;
+        }
+        if (meta_.columns[c].read_only()) { set_status(tr("edit.readonly-col")); return; }
+        if (changes_.is_deleted(r)) return;
+        B().set_edit_text(S(initial.empty() ? changes_.current(rows_, r, c).edit_text() : initial));
+        B().set_edit_row(r);
+        B().set_edit_col(c);
+    }
+
+    // Converts typed text into a Value for the column. Returns false and sets *err when invalid.
+    bool parse_cell(const ColumnInfo &col, const std::string &text, Value &out, std::string *err)
+    {
+        if (text.empty() && !is_textual_class(col.cls)) {
+            if (!col.nullable && !col.has_default && !col.identity) { *err = col.name + " cannot be empty"; return false; }
+            out = col.nullable ? Value::null() : Value::dflt();
+            return true;
+        }
+        if (is_textual_class(col.cls)) { out = Value::text(text); return true; }
+        auto v = parse_typed(col.cls, text, err);
+        if (!v) return false;
+        out = *v;
+        return true;
+    }
+
+    void commit_edit(const std::string &text, int move)
+    {
+        int r = B().get_edit_row(), c = B().get_edit_col();
+        if (r < 0 || c < 0) return;
+        B().set_edit_row(-1);
+        B().set_edit_col(-1);
+        if (r >= (int)visible_rows()) return;
+        Value v;
+        std::string err;
+        if (!parse_cell(meta_.columns[c], text, v, &err)) {
+            set_status(trf("edit.bad-value", { err }));
+            return;
+        }
+        changes_.set_cell(rows_, r, c, v);
+        refresh_row(r);
+        update_pending();
+        if (move == 1) move_selection(1, 0);
+        else if (move == 2) move_selection(0, 1);
+    }
+
+    void set_null()
+    {
+        int r = B().get_sel_row(), c = B().get_sel_col();
+        if (!editable_ || r < 0 || c < 0 || r >= (int)visible_rows()) return;
+        const ColumnInfo &col = meta_.columns[c];
+        if (col.read_only()) { set_status(tr("edit.readonly-col")); return; }
+        if (!col.nullable) { set_status(trf("edit.bad-value", { col.name + " is NOT NULL" })); return; }
+        changes_.set_cell(rows_, r, c, Value::null());
+        refresh_row(r);
+        update_pending();
+    }
+
+    void revert_cell()
+    {
+        int r = B().get_sel_row(), c = B().get_sel_col();
+        if (r < 0 || c < 0 || r >= (int)visible_rows()) return;
+        changes_.restore_cell(rows_, r, c);
+        refresh_row(r);
+        update_pending();
+    }
+
+    void add_row(bool duplicate)
+    {
+        if (!editable_) return;
+        int r = B().get_sel_row();
+        if (duplicate) {
+            if (r < 0 || r >= (int)visible_rows()) return;
+            changes_.add_insert(changes_.duplicate_of(meta_, rows_, r));
+        } else {
+            changes_.add_insert(ChangeSet::blank_row(meta_));
+        }
+        refresh_rows();
+        update_pending();
+        int last = (int)visible_rows() - 1;
+        B().set_sel_row(last);
+        if (B().get_sel_col() < 0) B().set_sel_col(0);
+        scroll_to_row(last);
+    }
+
+    void delete_row()
+    {
+        int r = B().get_sel_row();
+        if (!editable_ || r < 0 || r >= (int)visible_rows()) return;
+        if (changes_.is_deleted(r)) changes_.unmark_delete(r);
+        else changes_.mark_delete(rows_, r);
+        refresh_rows();
+        update_pending();
+        int n = (int)visible_rows();
+        if (B().get_sel_row() >= n) B().set_sel_row(n - 1);
+    }
+
+    void copy_cell()
+    {
+        int r = B().get_sel_row(), c = B().get_sel_col();
+        if (r < 0 || c < 0 || r >= (int)visible_rows() || c >= (int)meta_.columns.size()) return;
+        const Value &v = changes_.current(rows_, r, c);
+        platform::clipboard_set(v.is_null() ? std::string() : v.display());
+        set_status(tr("status.copied"));
+    }
+
+    void copy_row()
+    {
+        int r = B().get_sel_row();
+        if (r < 0 || r >= (int)visible_rows()) return;
+        std::string s;
+        for (size_t c = 0; c < meta_.columns.size(); ++c) {
+            if (c) s += '\t';
+            const Value &v = changes_.current(rows_, r, c);
+            s += v.is_null() ? std::string() : v.display();
+        }
+        platform::clipboard_set(s);
+        set_status(tr("status.copied"));
+    }
+
+    void open_detail()
+    {
+        int r = B().get_sel_row(), c = B().get_sel_col();
+        if (r < 0 || c < 0 || r >= (int)visible_rows() || c >= (int)meta_.columns.size()) return;
+        const Value &v = changes_.current(rows_, r, c);
+        B().set_detail_title(S(trf("detail.title", { meta_.columns[c].name, std::to_string(req_.offset + r + 1) })));
+        B().set_detail_body(S(v.display()));
+        B().set_detail_open(true);
+    }
+
+    // ------------------------------------------------------------------ saving
+    void start_save(std::function<void()> then)
+    {
+        if (!table_open_ || changes_.empty() || saving_) { if (then) then(); return; }
+        std::vector<Change> list;
+        try {
+            list = changes_.build(meta_, rows_);
+        } catch (const std::exception &e) {
+            notify(tr("save.confirm-title"), trf("save.failed", { e.what() }));
+            return;
+        }
+        std::string detail;
+        try {
+            detail = tr("save.preview") + "\n" + conn_->preview_changes(meta_, list);
+        } catch (...) {
+        }
+        std::string count = std::to_string(list.size());
+        std::string text = trf(is_prod() ? "save.confirm-prod" : "save.confirm-text", { count, meta_.table.label() });
+        size_t dels = changes_.delete_count();
+        if (dels) text += "\n" + trf("save.delete-warn", { std::to_string(dels) });
+        confirm(tr("save.confirm-title"), text, detail, tr("save.apply"), "", dels > 0 || is_prod(), is_prod(), [this, list = std::move(list), then](int r) mutable {
+            if (r != 1) return;
+            run_save(std::move(list), then);
+        });
+    }
+
+    void run_save(std::vector<Change> list, std::function<void()> then)
+    {
+        saving_ = true;
+        set_busy();
+        auto c = conn_;
+        TableMeta meta = meta_;
+        uint64_t cg = conn_gen_;
+        spawn([this, c, meta = std::move(meta), list = std::move(list), then, cg] {
+            try {
+                ApplyReport rep = c->apply_changes(meta, list);
+                post([this, rep, then, cg] {
+                    saving_ = false;
+                    set_busy();
+                    if (cg != conn_gen_) return;
+                    changes_.clear();
+                    set_status(trf("save.done", { std::to_string(rep.inserted), std::to_string(rep.updated), std::to_string(rep.deleted) }));
+                    if (then) then();
+                    else load_page(true);
+                });
+            } catch (const DbError &e) {
+                std::string m = e.what();
+                bool conflict = e.kind == ErrKind::Conflict;
+                post([this, m, conflict] {
+                    saving_ = false;
+                    set_busy();
+                    std::string msg = conflict ? tr("save.conflict") : trf("save.failed", { m });
+                    set_status(msg);
+                    notify(tr("save.confirm-title"), msg);
+                });
+            } catch (const std::exception &e) {
+                std::string m = e.what();
+                post([this, m] {
+                    saving_ = false;
+                    set_busy();
+                    set_status(trf("save.failed", { m }));
+                    notify(tr("save.confirm-title"), trf("save.failed", { m }));
+                });
+            }
+        });
+    }
+
+    // ------------------------------------------------------------------ export
+    void open_export(bool from_sql)
+    {
+        if (from_sql ? sql_out_.rows.empty() : !table_open_) return;
+        export_from_sql_ = from_sql;
+        B().set_exp_summary(S(from_sql ? tr("export.summary-sql") : trf("export.summary", { meta_.table.label() })));
+        B().set_exp_progress(S(""));
+        B().set_exp_running(false);
+        B().set_exp_open(true);
+    }
+
+    void start_export()
+    {
+        if (exporting_) return;
+        static const ExportFormat fmts[] = { ExportFormat::Csv, ExportFormat::Tsv, ExportFormat::Json, ExportFormat::Ndjson, ExportFormat::SqlInsert };
+        ExportOptions opt;
+        opt.format = fmts[std::clamp(B().get_exp_format(), 0, 4)];
+        opt.header = B().get_exp_header();
+        opt.delimiter = opt.format == ExportFormat::Tsv ? '\t' : ',';
+        std::string base = export_from_sql_ ? "result" : meta_.table.name;
+        opt.table_name = base;
+        std::string ext = export_extension(opt.format);
+        std::string label = ext.substr(1);
+        for (auto &ch : label) ch = (char)std::toupper((unsigned char)ch);
+        std::optional<std::string> path;
+        if (const char *forced = std::getenv("DBPRO_SELFTEST_EXPORT")) path = std::string(forced) + ext; // self-test: no native dialog
+        else path = platform::save_dialog(tr("export.title"), base + ext, { { label, "*" + ext } });
+        if (!path) return;
+
+        exporting_ = true;
+        exp_cancel_ = std::make_shared<CancelToken>();
+        auto tok = exp_cancel_;
+        B().set_exp_running(true);
+        B().set_exp_progress(S(trf("export.progress", { "0" })));
+        set_busy();
+        auto c = conn_;
+        TableMeta meta = meta_;
+        PageRequest req = req_;
+        bool from_sql = export_from_sql_;
+        QueryOutput out = from_sql ? sql_out_ : QueryOutput();
+        std::string file = *path;
+        spawn([this, c, meta = std::move(meta), req = std::move(req), tok, opt, file, from_sql, out = std::move(out)]() mutable {
+            uint64_t written = 0;
+            bool cancelled = false;
+            std::string error;
+            try {
+                std::vector<ColumnInfo> cols;
+                if (from_sql) {
+                    for (auto &n : out.columns) { ColumnInfo ci; ci.name = n; cols.push_back(ci); }
+                } else {
+                    cols = meta.columns;
+                }
+                auto writer = make_writer(std::filesystem::u8path(file), opt);
+                writer->begin(cols);
+                auto last = Clock::now();
+                auto report = [&] {
+                    auto now = Clock::now();
+                    if (now - last > std::chrono::milliseconds(200)) {
+                        last = now;
+                        uint64_t w = written;
+                        post([this, w] { B().set_exp_progress(S(trf("export.progress", { i18n::with_commas(w) }))); });
+                    }
+                };
+                if (from_sql) {
+                    const size_t step = 2000;
+                    for (size_t k = 0; k < out.rows.size() && !tok->cancelled(); k += step) {
+                        size_t e = std::min(out.rows.size(), k + step);
+                        std::vector<std::vector<Value>> batch(out.rows.begin() + k, out.rows.begin() + e);
+                        writer->rows(batch);
+                        written += batch.size();
+                        report();
+                    }
+                } else {
+                    c->stream_rows(meta, req, 5000, [&](std::vector<std::vector<Value>> &batch) {
+                        writer->rows(batch);
+                        written += batch.size();
+                        report();
+                        return !tok->cancelled();
+                    }, tok);
+                }
+                writer->end();
+                cancelled = tok->cancelled();
+            } catch (const DbError &e) {
+                if (e.kind == ErrKind::Cancelled) cancelled = true;
+                else error = e.what();
+            } catch (const std::exception &e) {
+                error = e.what();
+            }
+            post([this, written, cancelled, error, file] {
+                exporting_ = false;
+                set_busy();
+                B().set_exp_running(false);
+                std::string msg = !error.empty() ? trf("export.failed", { error })
+                                  : cancelled   ? tr("export.cancelled")
+                                                : trf("export.done", { i18n::with_commas(written), file });
+                B().set_exp_progress(S(msg));
+                set_status(msg);
+                if (error.empty() && !cancelled) {
+                    try { store_.settings.last_export_dir = platform::narrow(std::filesystem::u8path(file).parent_path().wstring()); } catch (...) {}
+                    if (!std::getenv("DBPRO_SELFTEST")) platform::reveal_in_explorer(file);
+                }
+            });
+        });
+    }
+
+    // ------------------------------------------------------------------ SQL editor
+    void run_sql(const std::string &text)
+    {
+        if (sql_running_) return;
+        if (!connected_) { B().set_sql_message(S(tr("sql.need-connection"))); B().set_sql_error(true); return; }
+        bool blank = true;
+        for (char ch : text) if (!std::isspace((unsigned char)ch)) blank = false;
+        if (blank) { B().set_sql_message(S(tr("sql.empty"))); B().set_sql_error(true); return; }
+        if (!statement_is_read_only(text)) {
+            confirm(tr("sql.confirm-title"), is_prod() ? tr("sql.confirm-prod") : tr("sql.confirm-text"), text.substr(0, 1200), tr("sql.run-anyway"), "", true, is_prod(), [this, text](int r) {
+                if (r == 1) execute_sql(text);
+            });
+            return;
+        }
+        execute_sql(text);
+    }
+
+    void execute_sql(const std::string &text)
+    {
+        sql_running_ = true;
+        sql_cancel_ = std::make_shared<CancelToken>();
+        auto tok = sql_cancel_;
+        B().set_sql_running(true);
+        B().set_sql_error(false);
+        B().set_sql_message(S(tr("sql.running")));
+        set_busy();
+        auto c = conn_;
+        uint64_t cg = conn_gen_;
+        constexpr size_t kMaxRows = 10000;
+        spawn([this, c, text, tok, cg] {
+            try {
+                QueryOutput out = c->execute(text, kMaxRows, tok);
+                post([this, cg, out = std::move(out)]() mutable { on_sql_done(cg, std::move(out)); });
+            } catch (const DbError &e) {
+                std::string m = e.what();
+                bool cancelled = e.kind == ErrKind::Cancelled;
+                post([this, m, cancelled] { sql_failed(cancelled ? tr("status.cancelled") : m); });
+            } catch (const std::exception &e) {
+                std::string m = e.what();
+                post([this, m] { sql_failed(m); });
+            }
+        });
+    }
+
+    void sql_failed(const std::string &m)
+    {
+        sql_running_ = false;
+        B().set_sql_running(false);
+        B().set_sql_error(true);
+        B().set_sql_message(S(m));
+        set_busy();
+    }
+
+    void on_sql_done(uint64_t cg, QueryOutput out)
+    {
+        sql_running_ = false;
+        B().set_sql_running(false);
+        set_busy();
+        if (cg != conn_gen_) return;
+        sql_out_ = std::move(out);
+        std::vector<ColumnUi> cols;
+        sql_widths_.clear();
+        double x = 0;
+        for (size_t k = 0; k < sql_out_.columns.size(); ++k) {
+            size_t longest = sql_out_.columns[k].size();
+            bool numeric = false;
+            for (size_t r = 0; r < sql_out_.rows.size() && r < 100; ++r) {
+                const Value &v = sql_out_.rows[r][k];
+                longest = std::max(longest, std::min<size_t>(v.display().size(), 60));
+                if (v.kind == Value::Kind::Int || v.kind == Value::Kind::Float || v.kind == Value::Kind::Decimal) numeric = true;
+            }
+            double w = std::clamp((double)longest * 8.0 + 28.0, 80.0, 420.0);
+            sql_widths_.push_back(w);
+            ColumnUi u {};
+            u.name = S(sql_out_.columns[k]);
+            u.x = (float)x;
+            u.width = (float)w;
+            u.align_right = numeric;
+            cols.push_back(u);
+            x += w;
+        }
+        sql_columns_model_->set_vector(cols);
+        B().set_sql_content_width((float)x);
+        std::vector<RowUi> rows;
+        rows.reserve(sql_out_.rows.size());
+        for (size_t r = 0; r < sql_out_.rows.size(); ++r) {
+            RowUi row {};
+            auto cells = std::make_shared<slint::VectorModel<CellUi>>();
+            for (auto &v : sql_out_.rows[r]) cells->push_back(make_cell(v, false));
+            row.cells = cells;
+            row.label = S(std::to_string(r + 1));
+            rows.push_back(row);
+        }
+        sql_rows_model_->set_vector(rows);
+        std::string msg;
+        if (sql_out_.columns.empty() && sql_out_.affected >= 0)
+            msg = trf("sql.affected", { std::to_string(sql_out_.affected), std::to_string(sql_out_.elapsed_ms) });
+        else
+            msg = trf("sql.done-rows", { i18n::with_commas(sql_out_.rows.size()), std::to_string(sql_out_.elapsed_ms), sql_out_.truncated ? trf("sql.truncated", { i18n::with_commas(sql_out_.rows.size()) }) : std::string() });
+        if (!sql_out_.message.empty() && sql_out_.columns.empty()) msg = sql_out_.message;
+        B().set_sql_error(false);
+        B().set_sql_message(S(msg));
+        if (sql_out_.columns.empty() && table_open_ && changes_.empty()) load_page(true);
+    }
+
+    void open_sql_file()
+    {
+        auto p = platform::open_dialog(tr("sql.open"), { { "SQL", "*.sql" }, { "*.*", "*.*" } });
+        if (!p) return;
+        std::ifstream f(std::filesystem::u8path(*p), std::ios::binary);
+        if (!f) return;
+        std::stringstream ss;
+        ss << f.rdbuf();
+        std::string t = ss.str();
+        if (t.size() >= 3 && (unsigned char)t[0] == 0xEF && (unsigned char)t[1] == 0xBB && (unsigned char)t[2] == 0xBF) t.erase(0, 3);
+        B().set_sql_text(S(t));
+    }
+
+    void save_sql_file(const std::string &text)
+    {
+        auto p = platform::save_dialog(tr("sql.save"), "query.sql", { { "SQL", "*.sql" } });
+        if (!p) return;
+        std::ofstream f(std::filesystem::u8path(*p), std::ios::binary | std::ios::trunc);
+        f << text;
+    }
+
+private:
+    slint::ComponentHandle<AppWindow> ui_;
+    Store store_;
+    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
+    std::atomic<int> workers_ { 0 };
+
+    // connection
+    bool connected_ = false, connecting_ = false;
+    std::string connecting_id_;
+    Profile profile_;
+    std::shared_ptr<Connector> conn_;
+    Capabilities caps_;
+    uint64_t conn_gen_ = 0;
+    Node root_;
+    std::vector<Flat> flat_;
+    std::string editing_id_;
+
+    // table view
+    bool table_open_ = false, editable_ = false, loading_ = false, saving_ = false, counting_ = false, has_more_ = false;
+    TableMeta meta_;
+    TableRef table_ref_;
+    PageRequest req_;
+    std::vector<std::vector<Value>> rows_;
+    ChangeSet changes_;
+    std::vector<ColFilter> filters_;
+    std::vector<double> widths_;
+    FilterGroup pending_group_;
+    std::string pending_sig_, applied_sig_;
+    int applied_filter_count_ = 0;
+    TotalMode total_mode_ = TotalMode::Unknown;
+    uint64_t total_ = 0;
+    int page_size_ = 100;
+    uint64_t fetch_gen_ = 0;
+    CancelPtr fetch_cancel_, count_cancel_;
+    std::vector<Op> menu_ops_;
+    int menu_col_ = -1;
+    slint::Timer filter_timer_;
+
+    // sql
+    bool sql_running_ = false;
+    CancelPtr sql_cancel_;
+    QueryOutput sql_out_;
+    std::vector<double> sql_widths_;
+
+    // export
+    bool exporting_ = false, export_from_sql_ = false;
+    CancelPtr exp_cancel_;
+
+    std::function<void(int)> dlg_cb_;
+
+    std::shared_ptr<slint::VectorModel<ColumnUi>> columns_model_ = std::make_shared<slint::VectorModel<ColumnUi>>();
+    std::shared_ptr<slint::VectorModel<RowUi>> rows_model_ = std::make_shared<slint::VectorModel<RowUi>>();
+    std::shared_ptr<slint::VectorModel<ColumnUi>> sql_columns_model_ = std::make_shared<slint::VectorModel<ColumnUi>>();
+    std::shared_ptr<slint::VectorModel<RowUi>> sql_rows_model_ = std::make_shared<slint::VectorModel<RowUi>>();
+    std::shared_ptr<slint::VectorModel<TreeRowUi>> tree_model_ = std::make_shared<slint::VectorModel<TreeRowUi>>();
+    std::shared_ptr<slint::VectorModel<slint::SharedString>> op_menu_model_ = std::make_shared<slint::VectorModel<slint::SharedString>>();
+    std::shared_ptr<slint::VectorModel<slint::SharedString>> engines_model_ = std::make_shared<slint::VectorModel<slint::SharedString>>();
+};
+
+int run_app()
+{
+    Controller c;
+    return c.run();
+}

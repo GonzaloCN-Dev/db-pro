@@ -1,0 +1,174 @@
+import { ColumnUi, RowUi, TreeRowUi } from "types.slint";
+
+// Everything the UI shows or asks for goes through this global; src/app.cpp implements it.
+export global Backend {
+    pure callback tr(string, int) -> string;
+    in property <int> lang-rev: 0;
+    // Reading lang-rev makes every label re-evaluate when the language changes.
+    pure public function t(key: string) -> string { return tr(key, lang-rev); }
+    in-out property <bool> edit-select-all: true;
+    in property <bool> dark: true;
+
+    // ---- window / chrome
+    in-out property <int> view: 0;            // 0 data, 1 SQL
+    in property <string> status: "";
+    in property <string> status-right: "";
+    in property <bool> busy: false;
+    in property <bool> connected: false;
+    in property <string> conn-name: "";
+    in property <int> conn-env: 0;
+    in property <bool> conn-read-only: false;
+    in property <string> server-info: "";
+    callback toggle-theme();
+    callback toggle-language();
+    callback about();
+
+    // ---- explorer
+    in property <[TreeRowUi]> tree;
+    in-out property <string> tree-filter;
+    callback tree-filter-changed();
+    callback tree-clicked(int);
+    callback tree-toggled(int);
+    callback tree-activated(int);
+    callback tree-edit(int);
+    callback tree-disconnect(int);
+    callback tree-delete(int);
+    callback refresh-tree();
+    callback new-connection();
+
+    // ---- data grid
+    in property <bool> has-table: false;
+    in property <string> table-title: "";
+    in property <string> table-note: "";
+    in property <bool> loading: false;
+    in property <[ColumnUi]> columns;
+    in property <[RowUi]> rows;
+    in property <length> content-width: 0px;
+    in property <bool> editable: false;
+    in property <string> blocked-reason: "";
+    in property <int> filter-count: 0;
+    in property <int> pending-count: 0;
+    in property <string> pending-text: "";
+    in property <bool> can-undo: false;
+    in property <bool> can-redo: false;
+    in property <int> page-index: 0;
+    in property <int> page-size-index: 1;
+    in property <bool> has-more: false;
+    in property <string> total-text: "";
+    in property <string> range-text: "";
+    in property <string> query-text: "";
+    in property <string> filter-error: "";
+    in-out property <int> sel-row: -1;
+    in-out property <int> sel-col: -1;
+    in-out property <int> edit-row: -1;
+    in-out property <int> edit-col: -1;
+    in-out property <string> edit-text: "";
+    in property <string> cell-detail: "";
+    in property <bool> show-query: false;
+    in property <bool> can-count: false;
+    in property <int> scroll-token: 0;
+    in property <int> scroll-row: 0;
+    in property <[string]> op-menu;
+
+    callback sort-clicked(int, bool);
+    callback filter-edited(int, string);
+    callback filter-accepted(int);
+    callback prepare-op-menu(int);
+    callback op-picked(int, int);
+    callback clear-filters();
+    callback cell-clicked(int, int);
+    callback cell-double-clicked(int, int);
+    callback commit-edit(string, int);       // text, move: 0 stay, 1 down, 2 right
+    callback cancel-edit();
+    callback begin-edit(int, int, string);   // row, col, initial text ("" = current value)
+    callback move-selection(int, int);
+    callback set-null();
+    callback save();
+    callback discard();
+    callback undo();
+    callback redo();
+    callback add-row();
+    callback duplicate-row();
+    callback delete-rows();
+    callback revert-cell();
+    callback copy-cell();
+    callback copy-row();
+    callback first-page();
+    callback prev-page();
+    callback next-page();
+    callback reload();
+    callback count-total();
+    callback export-data();
+    callback column-resized(int, length);
+    callback page-size-picked(int);
+    callback toggle-query();
+    callback open-detail();
+
+    // ---- SQL editor
+    in-out property <string> sql-text: "";
+    in property <[ColumnUi]> sql-columns;
+    in property <[RowUi]> sql-rows;
+    in property <length> sql-content-width: 0px;
+    in property <string> sql-message: "";
+    in property <bool> sql-running: false;
+    in property <bool> sql-error: false;
+    callback run-sql(string);
+    callback cancel-sql();
+    callback sql-column-resized(int, length);
+    callback open-sql-file();
+    callback save-sql-file(string);
+    callback export-sql-result();
+
+    // ---- dialogs
+    in-out property <bool> dlg-confirm-open: false;
+    in property <string> dlg-title: "";
+    in property <string> dlg-text: "";
+    in property <string> dlg-detail: "";
+    in property <string> dlg-ok: "";
+    in property <string> dlg-alt: "";
+    in property <bool> dlg-danger: false;
+    in property <bool> dlg-info: false;
+    in property <bool> dlg-prod: false;
+    callback dlg-result(int);                // 0 cancel, 1 primary, 2 alternative
+
+    // ---- connection editor
+    in-out property <bool> conn-dlg-open: false;
+    in property <bool> conn-dlg-edit: false;
+    in-out property <string> cd-name: "";
+    in-out property <int> cd-engine: 0;
+    in property <[string]> cd-engines;
+    in-out property <string> cd-host: "";
+    in-out property <string> cd-port: "";
+    in-out property <string> cd-database: "";
+    in-out property <string> cd-user: "";
+    in-out property <string> cd-password: "";
+    in-out property <string> cd-path: "";
+    in-out property <int> cd-env: 0;
+    in-out property <bool> cd-read-only: false;
+    in-out property <bool> cd-tls: true;
+    in-out property <bool> cd-trust: false;
+    in property <bool> cd-file-based: true;
+    in property <string> cd-message: "";
+    in property <bool> cd-message-error: false;
+    in property <bool> cd-testing: false;
+    callback cd-engine-picked(int);
+    callback cd-browse();
+    callback cd-test();
+    callback cd-save(bool);                  // connect after saving
+    callback cd-cancel();
+
+    // ---- export dialog
+    in-out property <bool> exp-open: false;
+    in-out property <int> exp-format: 0;
+    in-out property <bool> exp-header: true;
+    in property <string> exp-summary: "";
+    in property <bool> exp-running: false;
+    in property <string> exp-progress: "";
+    callback exp-start();
+    callback exp-cancel();
+
+    // ---- detail viewer
+    in-out property <bool> detail-open: false;
+    in property <string> detail-title: "";
+    in property <string> detail-body: "";
+}

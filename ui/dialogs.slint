@@ -1,0 +1,268 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Backend } from "backend.slint";
+import { Icon, Btn, IconBtn, TextField, Check, Dropdown, Segmented, FieldLabel, Sep, Spinner } from "widgets.slint";
+
+component Modal inherits Rectangle {
+    in property <length> dlg-width: 460px;
+    in property <string> title;
+    in property <bool> prod: false;
+    callback dismissed();
+    background: Theme.scrim;
+    TouchArea { clicked => { } }
+    Rectangle {
+        width: min(root.dlg-width, parent.width - 40px);
+        height: min(card.preferred-height, parent.height - 40px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Theme.surface;
+        border-radius: 12px;
+        border-width: root.prod ? 2px : 1px;
+        border-color: root.prod ? Theme.danger : Theme.border;
+        clip: true;
+        TouchArea { }
+        card := VerticalLayout {
+            padding: 20px;
+            spacing: 14px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.title;
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                Rectangle { }
+                IconBtn { glyph: "\u{E711}"; box: 26px; clicked => { root.dismissed(); } }
+            }
+            @children
+        }
+    }
+}
+
+export component ConfirmDialog inherits Modal {
+    title: Backend.dlg-title;
+    prod: Backend.dlg-prod;
+    dlg-width: 520px;
+    dismissed => { Backend.dlg-result(0); }
+    Text {
+        text: Backend.dlg-text;
+        font-size: 13px;
+        color: Theme.text;
+        wrap: word-wrap;
+    }
+    if Backend.dlg-detail != "": Rectangle {
+        height: min(180px, d.preferred-height + 20px);
+        background: Theme.surface2;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border;
+        clip: true;
+        d := Text {
+            x: 10px;
+            y: 10px;
+            width: parent.width - 20px;
+            text: Backend.dlg-detail;
+            font-size: 11px;
+            font-family: Theme.mono;
+            color: Theme.text-dim;
+            wrap: word-wrap;
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: end;
+        if !Backend.dlg-info: Btn { text: Backend.t("cancel"); clicked => { Backend.dlg-result(0); } }
+        if Backend.dlg-alt != "": Btn { text: Backend.dlg-alt; clicked => { Backend.dlg-result(2); } }
+        Btn {
+            text: Backend.dlg-ok;
+            kind: Backend.dlg-danger ? "danger" : "primary";
+            clicked => { Backend.dlg-result(1); }
+        }
+    }
+}
+
+export component ConnectionDialog inherits Modal {
+    title: Backend.conn-dlg-edit ? Backend.t("conn.edit") : Backend.t("conn.new");
+    dlg-width: 560px;
+    dismissed => { Backend.cd-cancel(); }
+    VerticalLayout {
+        spacing: 12px;
+        VerticalLayout {
+            spacing: 4px;
+            FieldLabel { text: Backend.t("conn.name"); }
+            TextField { value: Backend.cd-name; edited(t) => { Backend.cd-name = t; } }
+        }
+        VerticalLayout {
+            spacing: 4px;
+            FieldLabel { text: Backend.t("conn.engine"); }
+            Dropdown {
+                model: Backend.cd-engines;
+                current-index: Backend.cd-engine;
+                selected(i) => { Backend.cd-engine-picked(i); }
+            }
+        }
+        if Backend.cd-file-based: VerticalLayout {
+            spacing: 4px;
+            FieldLabel { text: Backend.t("conn.file"); }
+            HorizontalLayout {
+                spacing: 6px;
+                TextField { value: Backend.cd-path; edited(t) => { Backend.cd-path = t; } }
+                Btn { text: Backend.t("conn.browse"); clicked => { Backend.cd-browse(); } }
+            }
+        }
+        if !Backend.cd-file-based: VerticalLayout {
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 10px;
+                VerticalLayout {
+                    spacing: 4px;
+                    horizontal-stretch: 3;
+                    FieldLabel { text: Backend.t("conn.host"); }
+                    TextField { value: Backend.cd-host; edited(t) => { Backend.cd-host = t; } }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+                    FieldLabel { text: Backend.t("conn.port"); }
+                    TextField { value: Backend.cd-port; edited(t) => { Backend.cd-port = t; } }
+                }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                VerticalLayout {
+                    spacing: 4px;
+                    FieldLabel { text: Backend.t("conn.user"); }
+                    TextField { value: Backend.cd-user; edited(t) => { Backend.cd-user = t; } }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    FieldLabel { text: Backend.t("conn.password"); }
+                    TextField { value: Backend.cd-password; password: true; placeholder: Backend.t("conn.password-hint"); edited(t) => { Backend.cd-password = t; } }
+                }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                FieldLabel { text: Backend.t("conn.database"); }
+                TextField { value: Backend.cd-database; edited(t) => { Backend.cd-database = t; } }
+            }
+            Check { text: Backend.t("conn.tls"); checked: Backend.cd-tls; toggled(c) => { Backend.cd-tls = c; if (c) { Backend.cd-trust = false; } } }
+            Check {
+                text: Backend.t("conn.trust");
+                checked: Backend.cd-trust;
+                enabled: Backend.cd-tls;
+                toggled(c) => { Backend.cd-trust = c; }
+            }
+            if Backend.cd-trust: Text {
+                text: Backend.t("conn.trust-warning");
+                font-size: 11px;
+                color: Theme.warning;
+                wrap: word-wrap;
+            }
+        }
+        VerticalLayout {
+            spacing: 4px;
+            FieldLabel { text: Backend.t("conn.environment"); }
+            Segmented {
+                model: [Backend.t("env.dev"), Backend.t("env.test"), Backend.t("env.staging"), Backend.t("env.prod")];
+                current-index: Backend.cd-env;
+                selected(i) => { Backend.cd-env = i; }
+            }
+        }
+        Check { text: Backend.t("conn.readonly"); checked: Backend.cd-read-only; toggled(c) => { Backend.cd-read-only = c; } }
+        if Backend.cd-message != "": Text {
+            text: Backend.cd-message;
+            font-size: 12px;
+            color: Backend.cd-message-error ? Theme.danger : Theme.success;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Btn { text: Backend.cd-testing ? Backend.t("conn.testing") : Backend.t("conn.test"); enabled: !Backend.cd-testing; clicked => { Backend.cd-test(); } }
+            Rectangle { }
+            Btn { text: Backend.t("cancel"); clicked => { Backend.cd-cancel(); } }
+            Btn { text: Backend.t("save"); clicked => { Backend.cd-save(false); } }
+            Btn { text: Backend.t("conn.save-connect"); kind: "primary"; clicked => { Backend.cd-save(true); } }
+        }
+    }
+}
+
+export component ExportDialog inherits Modal {
+    title: Backend.t("export.title");
+    dlg-width: 480px;
+    dismissed => { if (!Backend.exp-running) { Backend.exp-open = false; } }
+    Text {
+        text: Backend.exp-summary;
+        font-size: 13px;
+        color: Theme.text;
+        wrap: word-wrap;
+    }
+    VerticalLayout {
+        spacing: 4px;
+        FieldLabel { text: Backend.t("export.format"); }
+        Segmented {
+            model: ["CSV", "TSV", "JSON", "NDJSON", "SQL"];
+            current-index: Backend.exp-format;
+            selected(i) => { Backend.exp-format = i; }
+        }
+    }
+    if Backend.exp-format < 2: Check {
+        text: Backend.t("export.header");
+        checked: Backend.exp-header;
+        toggled(c) => { Backend.exp-header = c; }
+    }
+    if Backend.exp-running: HorizontalLayout {
+        spacing: 10px;
+        Spinner { }
+        Text {
+            text: Backend.exp-progress;
+            font-size: 12px;
+            color: Theme.text-dim;
+            vertical-alignment: center;
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: end;
+        Btn {
+            text: Backend.exp-running ? Backend.t("cancel") : Backend.t("close");
+            clicked => { if (Backend.exp-running) { Backend.exp-cancel(); } else { Backend.exp-open = false; } }
+        }
+        Btn {
+            text: Backend.t("export.start");
+            kind: "primary";
+            enabled: !Backend.exp-running;
+            clicked => { Backend.exp-start(); }
+        }
+    }
+}
+
+export component DetailDialog inherits Modal {
+    title: Backend.detail-title;
+    dlg-width: 640px;
+    dismissed => { Backend.detail-open = false; }
+    Rectangle {
+        height: 320px;
+        background: Theme.surface2;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border;
+        clip: true;
+        ScrollView {
+            Text {
+                x: 10px;
+                width: parent.visible-width - 20px;
+                text: Backend.detail-body;
+                font-size: 12px;
+                font-family: Theme.mono;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+        }
+    }
+    HorizontalLayout {
+        alignment: end;
+        Btn { text: Backend.t("close"); clicked => { Backend.detail-open = false; } }
+    }
+}

@@ -1,0 +1,549 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Backend } from "backend.slint";
+import { Icon, IconBtn } from "widgets.slint";
+import { CellUi, ColumnUi, RowUi } from "types.slint";
+
+export global GridMetrics {
+    out property <length> gutter: 44px;
+    out property <length> row-height: 28px;
+    out property <length> header-height: 32px;
+    out property <length> filter-height: 34px;
+}
+
+component FilterBox inherits Rectangle {
+    in property <string> value;
+    in property <int> state; // 0 none, 1 active, 2 invalid
+    in property <string> op;
+    in property <string> tip;
+    in property <int> index;
+    callback edited(string);
+    callback accepted();
+
+    height: 26px;
+    border-radius: 4px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: root.state == 2 ? Theme.danger : ti.has-focus ? Theme.accent : root.state == 1 ? Theme.accent.with-alpha(0.65) : Theme.border;
+
+    changed value => {
+        if (ti.text != root.value) {
+            ti.text = root.value;
+        }
+    }
+
+    Rectangle {
+        x: 0;
+        width: 30px;
+        background: oa.has-hover ? Theme.hover : transparent;
+        border-radius: 4px;
+        Text {
+            text: root.op;
+            font-size: 11px;
+            font-weight: 700;
+            font-family: Theme.mono;
+            color: root.state == 1 ? Theme.accent : Theme.text-dim;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        oa := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => {
+                Backend.prepare-op-menu(root.index);
+                pop.show();
+            }
+        }
+    }
+    ti := TextInput {
+        x: 34px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 40px;
+        text: root.value;
+        single-line: true;
+        font-size: 12px;
+        color: Theme.text;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: #ffffff;
+        edited => { root.edited(self.text); }
+        accepted => { root.accepted(); }
+    }
+    pop := PopupWindow {
+        x: 0;
+        y: root.height + 2px;
+        width: 210px;
+        height: min(Backend.op-menu.length * 28px + 8px, 320px);
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.surface;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            ListView {
+                padding: 4px;
+                for item[i] in Backend.op-menu: Rectangle {
+                    height: 28px;
+                    border-radius: 5px;
+                    background: ia.has-hover ? Theme.hover : transparent;
+                    Text {
+                        x: 10px;
+                        width: parent.width - 20px;
+                        text: item;
+                        font-size: 12px;
+                        overflow: elide;
+                        vertical-alignment: center;
+                        color: Theme.text;
+                    }
+                    ia := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => {
+                            Backend.op-picked(root.index, i);
+                            pop.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component GridCellView inherits Rectangle {
+    in property <CellUi> cell;
+    in property <bool> right;
+    in property <bool> selected;
+    in property <int> row-state;
+    callback clicked();
+    callback double-clicked();
+
+    background: root.cell.edited ? Theme.edited : transparent;
+    border-width: root.selected ? 2px : 0px;
+    border-color: Theme.accent;
+
+    Text {
+        x: 8px;
+        width: parent.width - 16px;
+        text: root.cell.text;
+        font-size: 12px;
+        font-italic: root.cell.kind == 1 || root.cell.kind == 2 || root.cell.kind == 3;
+        font-family: root.cell.kind == 4 ? Theme.mono : "";
+        color: root.cell.kind == 0 || root.cell.kind == 4 ? (root.row-state == 2 ? Theme.text-faint : Theme.text) : Theme.text-faint;
+        overflow: elide;
+        horizontal-alignment: root.right ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+        vertical-alignment: center;
+    }
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        background: Theme.grid-line;
+    }
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        double-clicked => { root.double-clicked(); }
+    }
+}
+
+component HScroll inherits Rectangle {
+    in property <length> view-width;
+    in property <length> total-width;
+    in-out property <length> pos: 0px; // 0 .. -(total - view)
+    visible: root.total-width > root.view-width + 1px;
+    height: 12px;
+    background: Theme.surface2;
+    property <length> thumb-w: max(30px, root.width * root.view-width / max(root.total-width, 1px));
+    property <length> range: max(root.total-width - root.view-width, 1px);
+    Rectangle {
+        height: 6px;
+        y: 3px;
+        width: root.thumb-w;
+        x: min(root.width - root.thumb-w, max(0px, (-root.pos / root.range) * (root.width - root.thumb-w)));
+        border-radius: 3px;
+        background: bar-ta.pressed || bar-ta.has-hover ? Theme.text-faint : Theme.border;
+    }
+    bar-ta := TouchArea {
+        property <length> start-pos;
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) {
+                self.start-pos = root.pos;
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.pos = min(0px, max(-root.range, self.start-pos - (self.mouse-x - self.pressed-x) * root.range / max(root.width - root.thumb-w, 1px)));
+            }
+        }
+        clicked => {
+            root.pos = min(0px, max(-root.range, -(self.mouse-x / root.width) * root.range));
+        }
+    }
+}
+export component DataGrid inherits Rectangle {
+    background: Theme.surface;
+    clip: true;
+    hs := HScroll {
+        y: root.height - self.height;
+        width: root.width;
+        view-width: root.width;
+        total-width: Backend.content-width + GridMetrics.gutter;
+    }
+    fs := FocusScope {
+        height: root.height - (hs.visible ? hs.height : 0px);
+        key-pressed(e) => {
+            if (Backend.edit-row >= 0) {
+                return reject;
+            }
+            if (e.modifiers.control) {
+                if (e.text == "c") { Backend.copy-cell(); return accept; }
+                if (e.text == "s") { Backend.save(); return accept; }
+                if (e.text == "z") { Backend.undo(); return accept; }
+                if (e.text == "y") { Backend.redo(); return accept; }
+                if (e.text == "r") { Backend.reload(); return accept; }
+                return reject;
+            }
+            if (e.text == Key.UpArrow) { Backend.move-selection(-1, 0); return accept; }
+            if (e.text == Key.DownArrow) { Backend.move-selection(1, 0); return accept; }
+            if (e.text == Key.LeftArrow) { Backend.move-selection(0, -1); return accept; }
+            if (e.text == Key.RightArrow || e.text == Key.Tab) { Backend.move-selection(0, 1); return accept; }
+            if (e.text == Key.PageDown) { Backend.move-selection(10, 0); return accept; }
+            if (e.text == Key.PageUp) { Backend.move-selection(-10, 0); return accept; }
+            if (e.text == Key.Return || e.text == Key.F2) { Backend.edit-select-all = true; Backend.begin-edit(Backend.sel-row, Backend.sel-col, ""); return accept; }
+            if (e.text == Key.Delete) { Backend.delete-rows(); return accept; }
+            if (e.text == Key.Escape) { return accept; }
+            if (!e.modifiers.alt && !e.modifiers.meta && e.text.character-count == 1) {
+                Backend.edit-select-all = false;
+                Backend.begin-edit(Backend.sel-row, Backend.sel-col, e.text);
+                return accept;
+            }
+            return reject;
+        }
+
+        Flickable {
+            content-width: max(root.width, Backend.content-width + GridMetrics.gutter);
+            content-height: self.height;
+            content-x: hs.pos;
+            interactive: false;
+
+            VerticalLayout {
+                width: max(root.width, Backend.content-width + GridMetrics.gutter);
+                height: fs.height;
+                spacing: 0px;
+
+                // ---- header
+                Rectangle {
+                    height: GridMetrics.header-height;
+                    background: Theme.surface2;
+                    Rectangle {
+                        width: GridMetrics.gutter;
+                        x: 0;
+                        Icon { glyph: "\u{E8B7}"; font-size: 12px; color: Theme.text-faint; }
+                    }
+                    for col[ci] in Backend.columns: Rectangle {
+                        x: col.x + GridMetrics.gutter;
+                        width: col.width;
+                        height: parent.height;
+                        background: hta.has-hover ? Theme.hover : transparent;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+                            if col.pk: Icon { glyph: "\u{E8D7}"; font-size: 10px; color: Theme.warning; width: 12px; }
+                            VerticalLayout {
+                                alignment: center;
+                                Text {
+                                    text: col.name;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    color: Theme.text;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: col.type-label;
+                                    font-size: 9px;
+                                    color: Theme.text-faint;
+                                    overflow: elide;
+                                }
+                            }
+                            if col.sort != 0: Icon {
+                                glyph: col.sort == 1 ? "\u{E74A}" : "\u{E74B}";
+                                font-size: 11px;
+                                color: Theme.accent;
+                                width: 14px;
+                            }
+                            if col.sort-order > 1: Text {
+                                text: col.sort-order;
+                                font-size: 10px;
+                                color: Theme.accent;
+                                vertical-alignment: center;
+                            }
+                        }
+                        Rectangle {
+                            x: parent.width - 1px;
+                            width: 1px;
+                            background: Theme.border;
+                        }
+                        hta := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            pointer-event(e) => {
+                                if (e.button == PointerEventButton.left && e.kind == PointerEventKind.up) {
+                                    Backend.sort-clicked(ci, e.modifiers.shift);
+                                }
+                            }
+                        }
+                        // resize handle
+                        rh := TouchArea {
+                            x: parent.width - 6px;
+                            width: 6px;
+                            mouse-cursor: MouseCursor.col-resize;
+                            moved => {
+                                if (self.pressed) {
+                                    Backend.column-resized(ci, max(48px, col.width + (self.mouse-x - self.pressed-x)));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---- persistent filter row
+                Rectangle {
+                    height: GridMetrics.filter-height;
+                    background: Theme.surface2;
+                    Rectangle {
+                        width: GridMetrics.gutter;
+                        x: 0;
+                        IconBtn {
+                            glyph: "\u{E894}";
+                            box: 26px;
+                            enabled: Backend.filter-count > 0;
+                            tint: Theme.danger;
+                            clicked => { Backend.clear-filters(); }
+                        }
+                    }
+                    for col[ci] in Backend.columns: Rectangle {
+                        x: col.x + GridMetrics.gutter;
+                        width: col.width;
+                        height: parent.height;
+                        if col.filterable: FilterBox {
+                            x: 3px;
+                            width: parent.width - 6px;
+                            y: (parent.height - self.height) / 2;
+                            index: ci;
+                            value: col.filter-text;
+                            op: col.filter-op;
+                            state: col.filter-state;
+                            tip: col.filter-tip;
+                            edited(t) => { Backend.filter-edited(ci, t); }
+                            accepted => { Backend.filter-accepted(ci); }
+                        }
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Theme.border;
+                    }
+                }
+
+                // ---- rows
+                Rectangle {
+                    vertical-stretch: 1;
+                    ListView {
+                        property <int> scroll-token: Backend.scroll-token;
+                        changed scroll-token => {
+                            let top = Backend.scroll-row * GridMetrics.row-height;
+                            if (top < -self.content-y) {
+                                self.content-y = -top;
+                            } else if (top + GridMetrics.row-height > -self.content-y + self.visible-height) {
+                                self.content-y = -(top + GridMetrics.row-height - self.visible-height);
+                            }
+                        }
+                        for row[ri] in Backend.rows: Rectangle {
+                            height: GridMetrics.row-height;
+                            background: row.state == 1 ? Theme.inserted : row.state == 2 ? Theme.deleted : (Backend.sel-row == ri ? Theme.selection.with-alpha(0.35) : (mod(ri, 2) == 1 ? Theme.surface2.with-alpha(0.45) : transparent));
+                            Rectangle {
+                                width: GridMetrics.gutter;
+                                x: 0;
+                                Text {
+                                    text: row.state == 1 ? "+" : row.state == 2 ? "\u{00D7}" : row.label;
+                                    font-size: 10px;
+                                    color: row.state == 1 ? Theme.success : row.state == 2 ? Theme.danger : Theme.text-faint;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            for cell[ci] in row.cells: GridCellView {
+                                x: Backend.columns[ci].x + GridMetrics.gutter;
+                                width: Backend.columns[ci].width;
+                                height: parent.height;
+                                cell: cell;
+                                right: Backend.columns[ci].align-right;
+                                row-state: row.state;
+                                selected: Backend.sel-row == ri && Backend.sel-col == ci;
+                                clicked => {
+                                    fs.focus();
+                                    Backend.cell-clicked(ri, ci);
+                                }
+                                double-clicked => {
+                                    Backend.edit-select-all = true;
+                                    Backend.cell-double-clicked(ri, ci);
+                                }
+                            }
+                            Rectangle {
+                                y: parent.height - 1px;
+                                height: 1px;
+                                background: Theme.grid-line;
+                            }
+                            if Backend.edit-row == ri && Backend.edit-col >= 0: Rectangle {
+                                x: Backend.columns[Backend.edit-col].x + GridMetrics.gutter;
+                                width: max(Backend.columns[Backend.edit-col].width, 160px);
+                                height: parent.height;
+                                background: Theme.surface;
+                                border-width: 2px;
+                                border-color: Theme.accent;
+                                ed := TextInput {
+                                    x: 6px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: parent.width - 12px;
+                                    text: Backend.edit-text;
+                                    single-line: true;
+                                    font-size: 12px;
+                                    color: Theme.text;
+                                    selection-background-color: Theme.accent;
+                                    selection-foreground-color: #ffffff;
+                                    edited => { Backend.edit-text = self.text; }
+                                    accepted => { Backend.commit-edit(self.text, 1); fs.focus(); }
+                                    key-pressed(e) => {
+                                        if (e.text == Key.Escape) {
+                                            Backend.cancel-edit();
+                                            fs.focus();
+                                            return accept;
+                                        }
+                                        if (e.text == Key.Tab) {
+                                            Backend.commit-edit(self.text, 2);
+                                            fs.focus();
+                                            return accept;
+                                        }
+                                        return reject;
+                                    }
+                                    init => {
+                                        self.focus();
+                                        if (Backend.edit-select-all) {
+                                            self.select-all();
+                                        } else {
+                                            self.set-selection-offsets(self.text.character-count, self.text.character-count);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if Backend.loading: Rectangle {
+                        background: Theme.surface.with-alpha(0.55);
+                        Text {
+                            text: Backend.t("loading");
+                            font-size: 13px;
+                            color: Theme.text-dim;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if !Backend.loading && Backend.rows.length == 0 && Backend.has-table: Text {
+                        text: Backend.filter-count > 0 ? Backend.t("grid.no-match") : Backend.t("grid.empty");
+                        font-size: 13px;
+                        color: Theme.text-faint;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Read-only result grid used by the SQL editor.
+export component ResultGrid inherits Rectangle {
+    in property <[ColumnUi]> columns;
+    in property <[RowUi]> rows;
+    in property <length> content-width;
+    callback resized(int, length);
+    background: Theme.surface;
+    clip: true;
+    rhs := HScroll {
+        y: root.height - self.height;
+        width: root.width;
+        view-width: root.width;
+        total-width: root.content-width + GridMetrics.gutter;
+    }
+    Flickable {
+        height: root.height - (rhs.visible ? rhs.height : 0px);
+        content-x: rhs.pos;
+        content-width: max(root.width, root.content-width + GridMetrics.gutter);
+        content-height: self.height;
+        interactive: false;
+        VerticalLayout {
+            width: max(root.width, root.content-width + GridMetrics.gutter);
+            height: parent.height;
+            Rectangle {
+                height: GridMetrics.header-height;
+                background: Theme.surface2;
+                for col[ci] in root.columns: Rectangle {
+                    x: col.x + GridMetrics.gutter;
+                    width: col.width;
+                    height: parent.height;
+                    Text {
+                        x: 8px;
+                        width: parent.width - 16px;
+                        text: col.name;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { x: parent.width - 1px; width: 1px; background: Theme.border; }
+                    TouchArea {
+                        x: parent.width - 6px;
+                        width: 6px;
+                        mouse-cursor: MouseCursor.col-resize;
+                        moved => {
+                            if (self.pressed) {
+                                root.resized(ci, max(48px, col.width + (self.mouse-x - self.pressed-x)));
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                ListView {
+                    for row[ri] in root.rows: Rectangle {
+                        height: GridMetrics.row-height;
+                        background: mod(ri, 2) == 1 ? Theme.surface2.with-alpha(0.45) : transparent;
+                        Text {
+                            width: GridMetrics.gutter;
+                            text: row.label;
+                            font-size: 10px;
+                            color: Theme.text-faint;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        for cell[ci] in row.cells: Rectangle {
+                            x: root.columns[ci].x + GridMetrics.gutter;
+                            width: root.columns[ci].width;
+                            height: parent.height;
+                            Text {
+                                x: 8px;
+                                width: parent.width - 16px;
+                                text: cell.text;
+                                font-size: 12px;
+                                font-italic: cell.kind != 0 && cell.kind != 4;
+                                color: cell.kind == 0 || cell.kind == 4 ? Theme.text : Theme.text-faint;
+                                overflow: elide;
+                                horizontal-alignment: root.columns[ci].align-right ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                vertical-alignment: center;
+                            }
+                            Rectangle { x: parent.width - 1px; width: 1px; background: Theme.grid-line; }
+                        }
+                        Rectangle { y: parent.height - 1px; height: 1px; background: Theme.grid-line; }
+                    }
+                }
+            }
+        }
+    }
+}

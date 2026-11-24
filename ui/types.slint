@@ -1,0 +1,47 @@
+export struct ColumnUi {
+    name: string,
+    type-label: string,
+    x: length,
+    width: length,
+    sort: int,          // 0 none, 1 ascending, 2 descending
+    sort-order: int,    // 1.. position when sorting by several columns, 0 otherwise
+    pk: bool,
+    filter-text: string,
+    filter-op: string,  // compact operator symbol
+    filter-state: int,  // 0 none, 1 active, 2 invalid text
+    filter-tip: string,
+    align-right: bool,
+    filterable: bool,
+}
+
+export struct CellUi {
+    text: string,
+    kind: int,          // 0 value, 1 NULL, 2 DEFAULT, 3 missing field, 4 long/binary preview
+    edited: bool,
+}
+
+export struct RowUi {
+    cells: [CellUi],
+    state: int,         // 0 loaded, 1 new, 2 marked for deletion
+    label: string,
+}
+
+export struct TreeRowUi {
+    label: string,
+    depth: int,
+    kind: int,          // 0 connection, 1 database, 2 schema, 3 table, 4 view, 5 collection
+    expanded: bool,
+    busy: bool,
+    env: int,           // connection rows only: 0 dev .. 3 production
+    connected: bool,
+    active: bool,
+}
+
+export struct FieldUi {
+    key: string,
+    label: string,
+    value: string,
+    placeholder: string,
+    secret: bool,
+    visible: bool,
+}
