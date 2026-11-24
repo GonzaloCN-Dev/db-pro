@@ -32,6 +32,7 @@ TEST(sqlite_is_built_in_and_only_unknown_engines_are_unsupported)
     CHECK(drivers::probe_for_engine("postgres").state != drivers::State::NotImplemented);
     CHECK(drivers::probe_for_engine("mssql").state != drivers::State::NotImplemented);
     CHECK(drivers::probe_for_engine("mongodb").state != drivers::State::NotImplemented);
+    CHECK(drivers::probe_for_engine("duckdb").state != drivers::State::NotImplemented);
     CHECK(drivers::probe_for_engine("nonsense").state == drivers::State::NotImplemented);
 }
 

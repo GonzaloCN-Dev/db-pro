@@ -62,8 +62,13 @@ find_package(mongocxx CONFIG REQUIRED)
 add_library(dbpro_driver_mongodb SHARED src/drivers/mongodb_driver.cpp src/connectors/mongodb_conn.cpp)
 target_link_libraries(dbpro_driver_mongodb PRIVATE dbpro_core mongo::mongocxx_static ws2_32)
 
-add_custom_target(dbpro_drivers DEPENDS dbpro_driver_mysql dbpro_driver_postgres dbpro_driver_mssql dbpro_driver_mongodb)
-foreach(drv dbpro_driver_mysql dbpro_driver_postgres dbpro_driver_mssql dbpro_driver_mongodb)
+# DuckDB is linked statically from vcpkg (the CMake package name is "DuckDB").
+find_package(DuckDB CONFIG REQUIRED)
+add_library(dbpro_driver_duckdb SHARED src/drivers/duckdb_driver.cpp src/connectors/duckdb_conn.cpp)
+target_link_libraries(dbpro_driver_duckdb PRIVATE dbpro_core $<IF:$<TARGET_EXISTS:duckdb>,duckdb,duckdb_static>)
+
+add_custom_target(dbpro_drivers DEPENDS dbpro_driver_mysql dbpro_driver_postgres dbpro_driver_mssql dbpro_driver_mongodb dbpro_driver_duckdb)
+foreach(drv dbpro_driver_mysql dbpro_driver_postgres dbpro_driver_mssql dbpro_driver_mongodb dbpro_driver_duckdb)
     set_target_properties(${drv} PROPERTIES PREFIX "" RUNTIME_OUTPUT_DIRECTORY "${DBPRO_DRIVER_OUTPUT_DIR}")
 endforeach()
 enable_testing()

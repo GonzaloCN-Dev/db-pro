@@ -27,6 +27,7 @@ const std::vector<EngineDef> &engine_catalog()
         { "mysql", "MySQL", "mysql", 3306, X, "note.mysql" },
         { "mssql", "SQL Server", "mssql", 1433, X, "note.mssql" },
         { "mongodb", "MongoDB", "mongodb", 27017, T, "note.mongodb" },
+        { "duckdb", "DuckDB", "duckdb", 0, T, "note.duckdb" },
 
         // PostgreSQL wire protocol
         { "cloudberry", "Apache Cloudberry", "postgres", 5432, X, kPgNote },
@@ -71,6 +72,12 @@ const EngineDef *find_engine(const std::string &id)
     for (auto &e : engine_catalog())
         if (id == e.id) return &e;
     return nullptr;
+}
+
+bool is_file_engine(const std::string &id)
+{
+    const EngineDef *e = find_engine(id);
+    return e && e->port == 0;
 }
 
 std::vector<const EngineDef *> filter_engines(const std::string &filter)

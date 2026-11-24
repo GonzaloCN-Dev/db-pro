@@ -6,7 +6,7 @@
 
 namespace dbp {
 
-enum class Dialect { Sqlite, Postgres, MySql, MsSql };
+enum class Dialect { Sqlite, Postgres, MySql, MsSql, DuckDb };
 
 struct Built {
     std::string sql;

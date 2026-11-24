@@ -37,6 +37,7 @@ const std::vector<DriverDef> &defs()
         { "postgres", "dbpro_driver_postgres.dll", true },
         { "mssql", "dbpro_driver_mssql.dll", true },
         { "mongodb", "dbpro_driver_mongodb.dll", true },
+        { "duckdb", "dbpro_driver_duckdb.dll", true },
     };
     return d;
 }

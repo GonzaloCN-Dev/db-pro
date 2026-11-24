@@ -49,6 +49,7 @@ int main()
     p.port = std::atoi(env("ITEST_PORT", "0").c_str());
     p.user = env("ITEST_USER");
     p.database = env("ITEST_DB");
+    p.path = env("ITEST_PATH");
     p.tls = env("ITEST_TLS", "0") == "1";
     p.trust_server_cert = env("ITEST_TRUST", "0") == "1";
     std::string pass = env("ITEST_PASS");
@@ -67,10 +68,10 @@ int main()
     Capabilities caps = c->caps();
 
     const bool schemas = caps.schemas;
-    if (schemas && schema.empty()) schema = eng == "mssql" ? "dbo" : "public";
+    if (schemas && schema.empty()) schema = eng == "mssql" ? "dbo" : eng == "duckdb" ? "main" : "public";
     const std::string tname = "dbpro_it_orders";
     TableRef ref { p.database, schemas ? schema : "", tname };
-    std::string q = (eng == "mssql" ? p.database + "." + schema + "." : eng == "postgres" ? schema + "." : p.database + ".") + tname;
+    std::string q = (eng == "mssql" ? p.database + "." + schema + "." : (eng == "postgres" || eng == "duckdb") ? schema + "." : p.database + ".") + tname;
 
     auto exec = [&](const std::string &sql) { return c->execute(sql, 100, nullptr); };
     try { exec("DROP TABLE " + q); } catch (...) {}
@@ -298,6 +299,58 @@ int main()
     QueryOutput wr = c->execute("UPDATE " + q + " SET note = 'zz' WHERE id = 10", 10, nullptr);
     CHECK(wr.affected == 1, "UPDATE reports 1 affected row");
 
+    if (eng == "duckdb") {
+        std::printf("[duckdb types]\n");
+        struct Case { const char *sql; const char *want; };
+        const Case cases[] = {
+            { "SELECT 170141183460469231731687303715884105727::HUGEINT", "170141183460469231731687303715884105727" },
+            { "SELECT (-170141183460469231731687303715884105727)::HUGEINT", "-170141183460469231731687303715884105727" },
+            { "SELECT 340282366920938463463374607431768211455::UHUGEINT", "340282366920938463463374607431768211455" },
+            { "SELECT 18446744073709551615::UBIGINT", "18446744073709551615" },
+            { "SELECT 12345.6789::DECIMAL(10,4)", "12345.6789" },
+            { "SELECT (-0.05)::DECIMAL(10,2)", "-0.05" },
+            { "SELECT 123456789012345678901234567.89::DECIMAL(38,2)", "123456789012345678901234567.89" },
+            { "SELECT DATE '2024-02-29'", "2024-02-29" },
+            { "SELECT TIME '13:45:07.250'", "13:45:07.250000" },
+            { "SELECT TIMESTAMP '2024-02-29 13:45:07'", "2024-02-29 13:45:07" },
+            { "SELECT TIMESTAMP '2024-02-29 13:45:07.5'", "2024-02-29 13:45:07.500000" },
+            { "SELECT TIMESTAMPTZ '2024-02-29 13:45:07+00'", "2024-02-29 13:45:07+00" },
+            { "SELECT INTERVAL '1 year 2 months 3 days'", "1 year 2 months 3 days" },
+            { "SELECT uuid '550e8400-e29b-41d4-a716-446655440000'", "550e8400-e29b-41d4-a716-446655440000" },
+            { "SELECT [1, 2, NULL, 4]", "[1, 2, NULL, 4]" },
+            { "SELECT ['a', 'b']", "[a, b]" },
+            { "SELECT {'x': 1, 'y': 'z'}", "{'x': 1, 'y': z}" },
+            { "SELECT MAP {'k1': 10, 'k2': 20}", "{k1=10, k2=20}" },
+            { "SELECT [[1, 2], [3]]", "[[1, 2], [3]]" },
+            { "SELECT [1, 2, 3]::INTEGER[3]", "[1, 2, 3]" },
+            { "SELECT 'sad'::ENUM('sad', 'ok', 'happy')", "sad" },
+            { "SELECT union_value(num := 7)", "7" },
+            { "SELECT 1.5::FLOAT", "1.5" },
+            { "SELECT 'a long string that is definitely over twelve characters'", "a long string that is definitely over twelve characters" },
+            { "SELECT NULL::VARCHAR", "NULL" },
+            { "SELECT 'caf\u00e9 \u4e2d\u6587'", "caf\u00e9 \u4e2d\u6587" },
+        };
+        for (auto &cs : cases) {
+            std::string got;
+            try {
+                auto r = c->execute(cs.sql, 5, nullptr);
+                got = r.rows.empty() ? "(no rows)" : r.rows[0][0].display();
+            } catch (const std::exception &e) {
+                got = std::string("ERROR ") + e.what();
+            }
+            bool ok = got == cs.want;
+            CHECK(ok, cs.sql);
+            if (!ok) std::printf("        got: %s\n        want: %s\n", got.c_str(), cs.want);
+        }
+        auto r = c->execute("SELECT i, i * 2 AS twice FROM range(1, 4) t(i)", 10, nullptr);
+        CHECK(r.rows.size() == 3 && r.columns.size() == 2 && r.columns[1] == "twice", "named columns and several rows");
+        auto many = c->execute("SELECT i FROM range(5000) t(i)", 100, nullptr);
+        CHECK(many.truncated && many.rows.size() == 100, "result larger than the cap is truncated");
+        auto multi = c->execute("CREATE TEMP TABLE dbpro_tmp(a INT); INSERT INTO dbpro_tmp VALUES (1),(2),(3); SELECT sum(a) FROM dbpro_tmp", 10, nullptr);
+        CHECK(multi.rows.size() == 1 && multi.rows[0][0].display() == "6", "several statements: the last result set is returned");
+        auto aff = c->execute("DELETE FROM dbpro_tmp WHERE a > 1", 10, nullptr);
+        CHECK(aff.affected == 2, "affected rows of a DELETE");
+    }
     std::printf("[transactions]\n");
     if (caps.transactions) {
         c->begin();
@@ -310,7 +363,7 @@ int main()
 
     std::printf("[cancel]\n");
     {
-        std::string sleep = eng == "postgres" ? "SELECT pg_sleep(20)" : eng == "mssql" ? "WAITFOR DELAY '00:00:20'" : "SELECT SLEEP(20)";
+        std::string sleep = eng == "postgres" ? "SELECT pg_sleep(20)" : eng == "mssql" ? "WAITFOR DELAY '00:00:20'" : eng == "duckdb" ? "SELECT count(*) FROM range(100000000000) a, range(1000) b WHERE (a.range * b.range) % 7 = 3" : "SELECT SLEEP(20)";
         auto tok = std::make_shared<CancelToken>();
         std::thread t([&] { std::this_thread::sleep_for(std::chrono::milliseconds(700)); tok->cancel(); });
         auto t0 = std::chrono::steady_clock::now();
@@ -332,6 +385,8 @@ int main()
 
     std::printf("[read-only]\n");
     {
+        const bool single_file = eng == "duckdb"; // DuckDB refuses a second configuration of the same open file
+        if (single_file) c->close();
         Profile ro = p;
         ro.read_only = true;
         auto rc = drivers::connect(ro, pass);
@@ -351,6 +406,8 @@ int main()
         }
         std::printf("        (server said: %s)\n", rmsg.c_str());
         CHECK(refused, "the server refuses a write from the SQL editor in read-only mode");
+        rc.reset();
+        if (single_file) c = drivers::connect(p, pass);
         CHECK(c->count(m, FilterGroup(), nullptr) == 4999, "row 1 is still there");
     }
 
@@ -363,10 +420,15 @@ int main()
         std::printf("        (message: %s)\n", em.c_str());
         bad = p;
         bad.port = 1;
+        if (!p.path.empty()) {
+            bad.path = p.path + ".missing-dir\\x.db";
+            CHECK(throws(ErrKind::Connection, [&] { drivers::connect(bad, pass); }, &em), "unopenable file => Connection error");
+            std::printf("        (message: %s)\n", em.c_str());
+        } else
         CHECK(throws(ErrKind::Connection, [&] { drivers::connect(bad, pass); }, &em), "closed port => Connection error");
     }
 
-    try { exec("DROP TABLE " + q); } catch (...) {}
+    if (env("ITEST_KEEP", "0") != "1") try { exec("DROP TABLE " + q); } catch (...) {}
     std::printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

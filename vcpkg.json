@@ -7,6 +7,8 @@
     { "name": "sqlite3", "features": ["json1", "fts5"] },
     { "name": "libpq", "features": ["openssl"] },
     "libmariadb",
-    "mongo-cxx-driver"
+    "mongo-cxx-driver",
+    "duckdb",
+    "hiredis"
   ]
 }

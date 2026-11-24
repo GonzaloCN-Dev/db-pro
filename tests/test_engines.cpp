@@ -18,7 +18,7 @@ TEST(engine_ids_are_unique_and_lowercase)
 
 TEST(every_engine_has_a_real_route)
 {
-    std::set<std::string> known = { "", "postgres", "mysql", "mssql", "mongodb" };
+    std::set<std::string> known = { "", "postgres", "mysql", "mssql", "mongodb", "duckdb" };
     for (auto &e : engine_catalog()) {
         CHECK(known.count(e.driver) == 1);
         CHECK((std::string(e.id) == "sqlite") == (*e.driver == 0)); // only SQLite is built in

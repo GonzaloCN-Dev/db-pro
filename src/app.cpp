@@ -331,7 +331,8 @@ private:
         b.on_cd_engine_picked([this](int i) { engine_picked(i); });
         b.on_cd_driver_install([this] { install_driver(); });
         b.on_cd_browse([this] {
-            auto p = platform::open_dialog(tr("conn.file"), { { "SQLite", "*.db;*.sqlite;*.sqlite3;*.db3" }, { "*.*", "*.*" } });
+            const bool duck = std::string(kEngines[std::clamp(B().get_cd_engine(), 0, kEngineCount - 1)].id) == "duckdb";
+            auto p = platform::open_dialog(tr("conn.file"), { duck ? platform::Filter{ "DuckDB", "*.duckdb;*.db;*.ddb" } : platform::Filter{ "SQLite", "*.db;*.sqlite;*.sqlite3;*.db3" }, { "*.*", "*.*" } });
             if (p) B().set_cd_path(S(*p));
         });
         b.on_cd_test([this] { test_connection(); });
@@ -408,7 +409,7 @@ private:
         int old_default = kEngines[std::clamp(B().get_cd_engine(), 0, kEngineCount - 1)].port;
         std::string cur = U(B().get_cd_port());
         B().set_cd_engine(i);
-        B().set_cd_file_based(std::string(kEngines[i].id) == "sqlite");
+        B().set_cd_file_based(kEngines[i].port == 0);
         if (cur.empty() || cur == std::to_string(old_default)) B().set_cd_port(S(kEngines[i].port ? std::to_string(kEngines[i].port) : ""));
         B().set_cd_message(S(""));
         refresh_driver_panel();
@@ -428,7 +429,7 @@ private:
             for (int k = 0; k < kEngineCount; ++k)
                 if (p.engine == kEngines[k].id) ei = k;
             B().set_cd_engine(ei);
-            B().set_cd_file_based(p.engine == "sqlite");
+            B().set_cd_file_based(is_file_engine(p.engine));
             B().set_cd_host(S(p.host));
             B().set_cd_port(S(p.port ? std::to_string(p.port) : ""));
             B().set_cd_database(S(p.database));
@@ -474,7 +475,7 @@ private:
         while (!p.name.empty() && p.name.back() == ' ') p.name.pop_back();
         if (p.name.empty()) return tr("conn.need-name");
         if (drivers::probe_for_engine(p.engine).state == drivers::State::NotImplemented) return tr("conn.engine-unavailable");
-        if (p.engine == "sqlite") {
+        if (is_file_engine(p.engine)) {
             p.path = U(B().get_cd_path());
             if (p.path.empty()) return tr("conn.need-path");
             std::error_code ec;

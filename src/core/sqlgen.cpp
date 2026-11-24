@@ -80,6 +80,7 @@ std::string like_expr(Ctx &x, const ColumnInfo &c, Pat p, const std::string &tex
     std::string kw = negate ? " NOT LIKE " : " LIKE ";
     std::string lhs = col, rhs;
     switch (x.d) {
+    case Dialect::DuckDb:
     case Dialect::Postgres:
         kw = negate ? (cs ? " NOT LIKE " : " NOT ILIKE ") : (cs ? " LIKE " : " ILIKE ");
         rhs = x.bind(Value::text(pat));
@@ -114,8 +115,8 @@ std::string cond_sql(Ctx &x, const Condition &c)
         return txt ? "(" + q + " IS NULL OR " + q + " = '')" : q + " IS NULL";
     case Op::NotEmpty:
         return txt ? "(" + q + " IS NOT NULL AND " + q + " <> '')" : q + " IS NOT NULL";
-    case Op::IsTrue: return x.d == Dialect::Postgres ? q + " IS TRUE" : q + " = 1";
-    case Op::IsFalse: return x.d == Dialect::Postgres ? q + " IS FALSE" : q + " = 0";
+    case Op::IsTrue: return (x.d == Dialect::Postgres || x.d == Dialect::DuckDb) ? q + " IS TRUE" : q + " = 1";
+    case Op::IsFalse: return (x.d == Dialect::Postgres || x.d == Dialect::DuckDb) ? q + " IS FALSE" : q + " = 0";
     case Op::Contains: return like_expr(x, ci, Pat::Contains, first_text(), c.case_sensitive, false);
     case Op::StartsWith: return like_expr(x, ci, Pat::Starts, first_text(), c.case_sensitive, false);
     case Op::EndsWith: return like_expr(x, ci, Pat::Ends, first_text(), c.case_sensitive, false);
@@ -154,6 +155,7 @@ std::string cond_sql(Ctx &x, const Condition &c)
         std::string col = as_text(x, ci);
         std::string p = x.bind(Value::text(first_text()));
         if (x.d == Dialect::Postgres) return col + (c.case_sensitive ? " ~ " : " ~* ") + p;
+        if (x.d == Dialect::DuckDb) return std::string("regexp_matches(") + col + ", " + p + (c.case_sensitive ? ")" : ", 'i')");
         return col + " REGEXP " + p;
     }
     case Op::Exists:
@@ -249,6 +251,7 @@ std::string qualified_table(Dialect d, const TableRef &t)
     switch (d) {
     case Dialect::Sqlite:
         return t.database.empty() || t.database == "main" ? quote_ident(d, t.name) : quote_ident(d, t.database) + "." + quote_ident(d, t.name);
+    case Dialect::DuckDb:
     case Dialect::Postgres:
         return (t.schema.empty() ? "" : quote_ident(d, t.schema) + ".") + quote_ident(d, t.name);
     case Dialect::MySql:
@@ -259,7 +262,7 @@ std::string qualified_table(Dialect d, const TableRef &t)
     return quote_ident(d, t.name);
 }
 
-bool dialect_has_regex(Dialect d) { return d == Dialect::Postgres || d == Dialect::MySql; }
+bool dialect_has_regex(Dialect d) { return d == Dialect::Postgres || d == Dialect::MySql || d == Dialect::DuckDb; }
 
 std::string like_escape(const std::string &s)
 {

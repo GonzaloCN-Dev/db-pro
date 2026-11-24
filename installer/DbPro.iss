@@ -1,4 +1,4 @@
-﻿; Instalador de Db Pro (Inno Setup 6).
+; Instalador de Db Pro (Inno Setup 6).
 ; Compilar con: installer\build-installer.ps1
 
 #ifndef AppVersion
@@ -53,6 +53,9 @@ Name: "drv_postgres"; Description: "Driver PostgreSQL (probado con PostgreSQL 17
 #ifexist "payload\drivers\dbpro_driver_mongodb.dll"
 Name: "drv_mongodb"; Description: "Driver MongoDB (probado con MongoDB 8.0)"; Types: full
 #endif
+#ifexist "payload\drivers\dbpro_driver_duckdb.dll"
+Name: "drv_duckdb"; Description: "Driver DuckDB (probado con DuckDB 1.5)"; Types: full
+#endif
 #ifexist "payload\drivers\dbpro_driver_mssql.dll"
 Name: "drv_mssql"; Description: "Driver SQL Server (experimental: sin probar contra un servidor; requiere ODBC Driver 18)"; Types: full
 #endif
@@ -74,6 +77,9 @@ Source: "payload\drivers\dbpro_driver_postgres.dll"; DestDir: "{app}\drivers"; F
 #endif
 #ifexist "payload\drivers\dbpro_driver_mongodb.dll"
 Source: "payload\drivers\dbpro_driver_mongodb.dll"; DestDir: "{app}\drivers"; Flags: ignoreversion; Components: drv_mongodb
+#endif
+#ifexist "payload\drivers\dbpro_driver_duckdb.dll"
+Source: "payload\drivers\dbpro_driver_duckdb.dll"; DestDir: "{app}\drivers"; Flags: ignoreversion; Components: drv_duckdb
 #endif
 #ifexist "payload\drivers\dbpro_driver_mssql.dll"
 Source: "payload\drivers\dbpro_driver_mssql.dll"; DestDir: "{app}\drivers"; Flags: ignoreversion; Components: drv_mssql

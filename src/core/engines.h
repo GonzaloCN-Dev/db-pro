@@ -24,6 +24,8 @@ struct EngineDef {
 
 const std::vector<EngineDef> &engine_catalog();
 const EngineDef *find_engine(const std::string &id);
+// Engines opened from a file on disk instead of a host and port.
+bool is_file_engine(const std::string &id);
 
 // Entries whose label contains `filter` (case-insensitive), in display order. Empty filter = all.
 std::vector<const EngineDef *> filter_engines(const std::string &filter);
