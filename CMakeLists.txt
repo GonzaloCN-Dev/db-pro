@@ -47,8 +47,22 @@ find_package(unofficial-libmariadb CONFIG REQUIRED)
 add_library(dbpro_driver_mysql SHARED src/drivers/mysql_driver.cpp src/connectors/mysql_conn.cpp)
 target_link_libraries(dbpro_driver_mysql PRIVATE dbpro_core unofficial::libmariadb)
 
-add_custom_target(dbpro_drivers DEPENDS dbpro_driver_mysql)
-foreach(drv dbpro_driver_mysql)
+set(DBPRO_LIBDIR "${DBPRO_PREFIX}/lib")
+add_library(dbpro_driver_postgres SHARED src/drivers/postgres_driver.cpp src/connectors/postgres_conn.cpp)
+target_include_directories(dbpro_driver_postgres PRIVATE "${DBPRO_PREFIX}/include")
+target_link_libraries(dbpro_driver_postgres PRIVATE dbpro_core "${DBPRO_LIBDIR}/pq.lib" "${DBPRO_LIBDIR}/pgcommon.lib" "${DBPRO_LIBDIR}/pgport.lib"
+    "${DBPRO_LIBDIR}/libssl.lib" "${DBPRO_LIBDIR}/libcrypto.lib" "${DBPRO_LIBDIR}/libzs.lib" "${DBPRO_LIBDIR}/lz4.lib" ws2_32 secur32 crypt32 shell32 advapi32)
+
+# SQL Server talks ODBC: only the Windows ODBC manager is linked; Microsoft's "ODBC Driver 18" is installed separately by the user.
+add_library(dbpro_driver_mssql SHARED src/drivers/mssql_driver.cpp src/connectors/mssql_conn.cpp)
+target_link_libraries(dbpro_driver_mssql PRIVATE dbpro_core odbc32)
+
+find_package(mongocxx CONFIG REQUIRED)
+add_library(dbpro_driver_mongodb SHARED src/drivers/mongodb_driver.cpp src/connectors/mongodb_conn.cpp)
+target_link_libraries(dbpro_driver_mongodb PRIVATE dbpro_core mongo::mongocxx_static ws2_32)
+
+add_custom_target(dbpro_drivers DEPENDS dbpro_driver_mysql dbpro_driver_postgres dbpro_driver_mssql dbpro_driver_mongodb)
+foreach(drv dbpro_driver_mysql dbpro_driver_postgres dbpro_driver_mssql dbpro_driver_mongodb)
     set_target_properties(${drv} PROPERTIES PREFIX "" RUNTIME_OUTPUT_DIRECTORY "${DBPRO_DRIVER_OUTPUT_DIR}")
 endforeach()
 enable_testing()
@@ -57,6 +71,14 @@ target_link_libraries(dbpro_tests PRIVATE dbpro_core)
 target_compile_definitions(dbpro_tests PRIVATE DBPRO_TEST_DRIVERS_DIR="${DBPRO_DRIVER_OUTPUT_DIR}")
 add_dependencies(dbpro_tests dbpro_drivers)
 add_test(NAME dbpro_tests COMMAND dbpro_tests)
+
+add_executable(dbpro_itest tools/itest.cpp)
+target_link_libraries(dbpro_itest PRIVATE dbpro_core)
+add_dependencies(dbpro_itest dbpro_drivers)
+
+add_executable(dbpro_itest_mongo tools/itest_mongo.cpp)
+target_link_libraries(dbpro_itest_mongo PRIVATE dbpro_core)
+add_dependencies(dbpro_itest_mongo dbpro_drivers)
 
 add_executable(dbpro_sqlq tools/sqlq.cpp)
 target_link_libraries(dbpro_sqlq PRIVATE unofficial::sqlite3::sqlite3)

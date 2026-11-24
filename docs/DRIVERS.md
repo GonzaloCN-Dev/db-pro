@@ -5,8 +5,10 @@ Db Pro ships SQLite inside the app. Every other engine needs a **driver**: a DLL
 | Engine | Driver id | Status |
 |---|---|---|
 | SQLite | built in | Implemented and tested |
-| MySQL, MariaDB | `mysql` | Experimental: loads and reports connection errors (tested); not yet run against a real server |
-| PostgreSQL, SQL Server, MongoDB | `postgres`, `mssql`, `mongodb` | Not implemented |
+| MySQL, MariaDB, TiDB, OceanBase | `mysql` | MariaDB tested against a real server (58/58); MySQL, TiDB, OceanBase untested |
+| PostgreSQL, YugabyteDB, EDB, Cloudberry, Greengage, Materialize, RisingWave, CrateDB, Kingbase, Fujitsu PG, Yellowbrick | `postgres` | PostgreSQL tested against a real server (59/59); the others are wire-compatible and untested |
+| SQL Server, Babelfish | `mssql` | Compile-tested only (no server available) |
+| MongoDB | `mongodb` | Tested against a real standalone server (61/61) |
 
 ## How the app finds a driver
 1. `<folder of DbPro.exe>\drivers\` (portable and installer builds can bundle drivers here).

@@ -32,7 +32,10 @@
 | Motor | Estado |
 |---|---|
 | SQLite | Implementado. Probado con tests y UI sobre ficheros temporales. |
-| MySQL / MariaDB | **Experimental.** Conector escrito (`mysql_conn.cpp`, libmariadb, sentencias preparadas, KILL QUERY para cancelar) y registrado en la interfaz. Compila y los 52 tests siguen pasando, pero **no se ha ejecutado contra ningún servidor**. Hay un MariaDB local, pero harían falta credenciales. |
-| PostgreSQL, SQL Server, MongoDB | **No implementados**; sin servidor para probar en esta máquina. |
+| MySQL / MariaDB | Integración **58/58** contra un MariaDB 10.4.32 real desechable (`tools/itest.cpp`). MySQL propiamente dicho sin probar. |
+| PostgreSQL | Integración **59/59** contra PostgreSQL 17.5 real desechable. |
+| MongoDB | Integración **61/61** contra MongoDB 8.0.9 standalone real desechable (	ools/itest_mongo.cpp). Sin probar: Atlas/SRV, auth, TLS, transacciones (réplica). |
+| SQL Server | Compila; error de conexión comprobado. **Funcionalidad sin probar:** no hay servidor SQL Server. |
+| YugabyteDB, EDB, Cloudberry, Greengage, Materialize, RisingWave, CrateDB, Kingbase, Fujitsu PG, Yellowbrick (driver PG); TiDB, OceanBase (driver MySQL); Babelfish (driver MSSQL) | Experimentales: solo reutilizan el driver compatible, sin probar contra sus servidores. |
 
-La interfaz marca «(aún no disponible)» en los motores sin conector.
+La interfaz marca '(driver por descargar)' los motores cuyo driver no está instalado.

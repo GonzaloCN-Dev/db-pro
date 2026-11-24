@@ -53,10 +53,11 @@ Db Pro es una aplicación de escritorio en español para explorar y editar bases
 | Motor | Estado |
 | --- | --- |
 | **SQLite** | Incluido en la aplicación. Implementado y probado con tests y con la interfaz sobre una tabla de 70.000 filas. |
-| **MySQL / MariaDB** | Driver opcional. **Experimental:** carga y informa errores de conexión (probado), pero **todavía no se ha ejecutado contra un servidor real**. |
-| **PostgreSQL** | En desarrollo. Aún no disponible. |
-| **SQL Server / Azure SQL** | En desarrollo (vía ODBC Driver 18). Aún no disponible. |
-| **MongoDB / Atlas** | En desarrollo. Aún no disponible. |
+| **MySQL / MariaDB** | Driver opcional. **Probado** contra un MariaDB 10.4 real (58 comprobaciones de integración: metadatos, filtros, edición con conflicto, exportación en streaming, cancelación, solo lectura). MySQL propiamente dicho, sin probar. |
+| **PostgreSQL** | Driver opcional. **Probado** contra PostgreSQL 17.5 real (59 comprobaciones de integración). |
+| **SQL Server / Azure SQL** | Driver opcional (ODBC Driver 18). **Experimental:** compila y gestiona errores de conexión, pero **no se ha ejecutado contra un servidor SQL Server** (no hay ninguno en el equipo de desarrollo). |
+| **MongoDB / Atlas** | Driver opcional. **Probado** contra MongoDB 8.0 real standalone (61 comprobaciones). Atlas/mongodb+srv y transacciones en réplica sin probar. |
+| **Compatibles con PostgreSQL / MySQL / TDS** | YugabyteDB, EDB Postgres, Cloudberry, Greengage, Materialize, RisingWave, CrateDB, Kingbase, Fujitsu Enterprise Postgres, Yellowbrick (usan el driver PostgreSQL); TiDB y OceanBase en modo MySQL (driver MySQL); Babelfish (driver SQL Server). **Experimentales:** se conectan por el protocolo compatible, pero no se ha probado ninguno contra su servidor. |
 
 Ningún motor se anuncia como estable hasta que sus pruebas de integración pasan contra un servidor real. La interfaz marca los motores sin driver con «(driver por descargar)» o «(aún no disponible)».
 
@@ -129,7 +130,7 @@ Hecho con cuidado para que trabajar con tus bases de datos sea más sencillo.
 
 ### Status
 
-Early development (0.1.0). Only **SQLite** is implemented and tested end to end. MySQL/MariaDB is an optional, experimental driver that has not yet been run against a real server. PostgreSQL, SQL Server and MongoDB are in development. See [`docs/PROGRESS.md`](docs/PROGRESS.md) for what has actually been verified.
+Early development (0.1.0). SQLite is built in. PostgreSQL, MySQL/MariaDB and MongoDB drivers have passed integration tests against real throwaway servers; the SQL Server driver is compile-tested only (no server available). PostgreSQL-, MySQL- and TDS-compatible engines (YugabyteDB, TiDB, EDB, CrateDB, ...) are listed as experimental and untested. Oracle, DB2, Firebird, DuckDB, Trino and the other engines that need a different native/ODBC/JDBC driver are not supported yet. See [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
 ### Features
 

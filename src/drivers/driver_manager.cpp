@@ -33,10 +33,10 @@ struct DriverDef {
 const std::vector<DriverDef> &defs()
 {
     static const std::vector<DriverDef> d = {
-        { "mysql", "dbpro_driver_mysql.dll", { "mysql", "mariadb" }, true },
-        { "postgres", "dbpro_driver_postgres.dll", { "postgres" }, false },
-        { "mssql", "dbpro_driver_mssql.dll", { "mssql" }, false },
-        { "mongodb", "dbpro_driver_mongodb.dll", { "mongodb" }, false },
+        { "mysql", "dbpro_driver_mysql.dll", { "mysql", "mariadb", "tidb", "oceanbase" }, true },
+        { "postgres", "dbpro_driver_postgres.dll", { "postgres", "yugabytedb", "edb", "cloudberry", "greengage", "materialize", "risingwave", "cratedb", "kingbase", "fujitsupg", "yellowbrick" }, true },
+        { "mssql", "dbpro_driver_mssql.dll", { "mssql", "babelfish" }, true },
+        { "mongodb", "dbpro_driver_mongodb.dll", { "mongodb" }, true },
     };
     return d;
 }

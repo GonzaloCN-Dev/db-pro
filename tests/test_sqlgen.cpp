@@ -142,3 +142,24 @@ TEST(distinct_is_always_bounded)
     CHECK(build_distinct(Dialect::Sqlite, m, r).sql.find("LIMIT 1000") != std::string::npos);
     CHECK(build_distinct(Dialect::MsSql, m, r).sql.find("TOP (1000)") != std::string::npos);
 }
+
+TEST(qualified_names_per_dialect)
+{
+    TableRef t { "shop", "sales", "orders" };
+    CHECK_EQ(qualified_table(Dialect::Postgres, t), std::string("\"sales\".\"orders\""));
+    CHECK_EQ(qualified_table(Dialect::MySql, t), std::string("`shop`.`orders`"));
+    CHECK_EQ(qualified_table(Dialect::MsSql, t), std::string("[shop].[sales].[orders]"));
+    TableRef d { "shop", "", "orders" };
+    CHECK_EQ(qualified_table(Dialect::MsSql, d), std::string("[shop].[dbo].[orders]"));
+}
+
+TEST(count_and_distinct_per_dialect)
+{
+    TableMeta m = people();
+    CHECK(build_count(Dialect::MsSql, m, FilterGroup()).sql.find("COUNT_BIG(*)") != std::string::npos);
+    CHECK(build_count(Dialect::Postgres, m, FilterGroup()).sql.find("COUNT(*)") != std::string::npos);
+    Condition c; c.column = "name"; c.op = Op::Equals; c.values = { Value::text("x") };
+    FilterGroup g; g.conds = { c };
+    Built q = build_count(Dialect::Postgres, m, g);
+    CHECK(q.sql.find("$1") != std::string::npos && q.params.size() == 1);
+}

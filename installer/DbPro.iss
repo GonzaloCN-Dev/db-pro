@@ -45,7 +45,16 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Components]
 Name: "main"; Description: "Db Pro (incluye SQLite)"; Types: full compact custom; Flags: fixed
 #ifexist "payload\drivers\dbpro_driver_mysql.dll"
-Name: "drv_mysql"; Description: "Driver MySQL / MariaDB (experimental, sin probar aún contra un servidor)"; Types: full
+Name: "drv_mysql"; Description: "Driver MySQL / MariaDB (probado con MariaDB 10.4; MySQL sin probar)"; Types: full
+#endif
+#ifexist "payload\drivers\dbpro_driver_postgres.dll"
+Name: "drv_postgres"; Description: "Driver PostgreSQL (probado con PostgreSQL 17)"; Types: full
+#endif
+#ifexist "payload\drivers\dbpro_driver_mongodb.dll"
+Name: "drv_mongodb"; Description: "Driver MongoDB (probado con MongoDB 8.0)"; Types: full
+#endif
+#ifexist "payload\drivers\dbpro_driver_mssql.dll"
+Name: "drv_mssql"; Description: "Driver SQL Server (experimental: sin probar contra un servidor; requiere ODBC Driver 18)"; Types: full
 #endif
 
 [Tasks]
@@ -60,6 +69,16 @@ Source: "LICENSES.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: main
 #ifexist "payload\drivers\dbpro_driver_mysql.dll"
 Source: "payload\drivers\dbpro_driver_mysql.dll"; DestDir: "{app}\drivers"; Flags: ignoreversion; Components: drv_mysql
 #endif
+#ifexist "payload\drivers\dbpro_driver_postgres.dll"
+Source: "payload\drivers\dbpro_driver_postgres.dll"; DestDir: "{app}\drivers"; Flags: ignoreversion; Components: drv_postgres
+#endif
+#ifexist "payload\drivers\dbpro_driver_mongodb.dll"
+Source: "payload\drivers\dbpro_driver_mongodb.dll"; DestDir: "{app}\drivers"; Flags: ignoreversion; Components: drv_mongodb
+#endif
+#ifexist "payload\drivers\dbpro_driver_mssql.dll"
+Source: "payload\drivers\dbpro_driver_mssql.dll"; DestDir: "{app}\drivers"; Flags: ignoreversion; Components: drv_mssql
+#endif
+
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"

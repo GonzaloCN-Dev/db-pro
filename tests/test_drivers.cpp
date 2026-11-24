@@ -26,12 +26,12 @@ TEST(sha256_known_vectors)
     CHECK_EQ(drivers::sha256_hex("abc"), std::string("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
 }
 
-TEST(sqlite_is_built_in_and_other_engines_are_not)
+TEST(sqlite_is_built_in_and_only_unknown_engines_are_unsupported)
 {
     CHECK(drivers::probe_for_engine("sqlite").state == drivers::State::BuiltIn);
-    CHECK(drivers::probe_for_engine("postgres").state == drivers::State::NotImplemented);
-    CHECK(drivers::probe_for_engine("mssql").state == drivers::State::NotImplemented);
-    CHECK(drivers::probe_for_engine("mongodb").state == drivers::State::NotImplemented);
+    CHECK(drivers::probe_for_engine("postgres").state != drivers::State::NotImplemented);
+    CHECK(drivers::probe_for_engine("mssql").state != drivers::State::NotImplemented);
+    CHECK(drivers::probe_for_engine("mongodb").state != drivers::State::NotImplemented);
     CHECK(drivers::probe_for_engine("nonsense").state == drivers::State::NotImplemented);
 }
 

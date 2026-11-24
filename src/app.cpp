@@ -82,6 +82,20 @@ const Engine kEngines[] = {
     { "mariadb", "MariaDB", 3306 },
     { "mssql", "SQL Server", 1433 },
     { "mongodb", "MongoDB", 27017 },
+    // Wire-compatible engines served by an existing driver. Experimental: not tested against a real server here.
+    { "yugabytedb", "YugabyteDB (experimental)", 5433 },
+    { "edb", "EDB Postgres (experimental)", 5444 },
+    { "cloudberry", "Apache Cloudberry (experimental)", 5432 },
+    { "greengage", "Greengage (experimental)", 5432 },
+    { "materialize", "Materialize (experimental)", 6875 },
+    { "risingwave", "RisingWave (experimental)", 4566 },
+    { "cratedb", "CrateDB (experimental)", 5432 },
+    { "kingbase", "Kingbase (experimental)", 54321 },
+    { "fujitsupg", "Fujitsu Enterprise Postgres (experimental)", 27500 },
+    { "yellowbrick", "Yellowbrick (experimental)", 5432 },
+    { "tidb", "TiDB (experimental)", 4000 },
+    { "oceanbase", "OceanBase, MySQL mode (experimental)", 2881 },
+    { "babelfish", "Babelfish for Aurora PostgreSQL (experimental)", 1433 },
 };
 constexpr int kEngineCount = (int)(sizeof kEngines / sizeof kEngines[0]);
 const int kPageSizes[] = { 50, 100, 250, 500, 1000 };

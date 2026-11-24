@@ -19,8 +19,11 @@ Primera versión de desarrollo: estudio de bases de datos nativo para Windows, c
 | Motor | Estado |
 | --- | --- |
 | SQLite | Implementado y probado |
-| MySQL / MariaDB | Experimental: aún no probado contra un servidor real |
-| PostgreSQL, SQL Server, MongoDB | En desarrollo, aún no disponibles |
+| MySQL / MariaDB | Probado contra MariaDB 10.4 real (MySQL sin probar) |
+| PostgreSQL | Probado contra PostgreSQL 17.5 real |
+| MongoDB | Probado contra MongoDB 8.0 real (standalone) |
+| SQL Server / Azure SQL | Experimental: sin probar contra un servidor |
+| YugabyteDB, TiDB, EDB, CrateDB, Cloudberry, Greengage, Materialize, RisingWave, Kingbase, Fujitsu PG, Yellowbrick, OceanBase, Babelfish | Experimentales (protocolo compatible), sin probar |
 
 ## Instalar
 

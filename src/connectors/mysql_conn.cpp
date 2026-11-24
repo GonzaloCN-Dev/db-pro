@@ -52,6 +52,10 @@ MYSQL *open_raw(const MySqlParams &p)
     if (p.tls) {
         mysql_options(my, MYSQL_OPT_SSL_ENFORCE, &on);
         mysql_options(my, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, p.trust_server_cert ? &off : &on);
+    } else {
+        // Connector/C 3.4+ requires TLS unless told otherwise; the user turned it off for this connection.
+        mysql_options(my, MYSQL_OPT_SSL_ENFORCE, &off);
+        mysql_options(my, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &off);
     }
     // CLIENT_FOUND_ROWS: UPDATE reports matched rows, so "0 rows" really means the row changed or vanished.
     if (!mysql_real_connect(my, p.host.c_str(), p.user.c_str(), p.password.c_str(), p.database.empty() ? nullptr : p.database.c_str(), p.port,
