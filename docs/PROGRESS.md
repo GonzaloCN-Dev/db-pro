@@ -20,6 +20,7 @@
 | Ajustes, pestañas y vista de rendimiento | Compilación MSVC correcta. Autotest visual en 1360×800: preferencias, selector de idioma/tema/intervalo, dos tablas SQLite abiertas en pestañas y cambio de vista. SQLite muestra correctamente el estado de monitoreo no soportado. |
 | Updater | Compilación y 3 tests unitarios (comparación de versiones, validación de release/checksum/URL, vector SHA-256). El flujo real de descarga, instalación y relanzamiento no se ha ejecutado. |
 | Suite | `build\dbpro_tests.exe`: **67 tests, 0 fallidos**. |
+| Artefactos 0.2.0 | Build MSVC, instalador Inno Setup y paquete de 5 drivers con `drivers.json` generados; checksum SHA-256 del instalador. Instalación silenciosa y actualización end-to-end aún no verificadas. |
 
 ## Cómo se prueba la interfaz
 `DBPRO_SELFTEST=<script>` activa `src/selftest.cpp`: inyecta clics/teclas en la ventana de Slint y guarda capturas de esa ventana (`shot`). No toca el escritorio real. Variables: `DBPRO_SELFTEST_OUT`, `DBPRO_SELFTEST_EXPORT` (ruta sin extensión, evita el diálogo nativo), `DBPRO_DATA_DIR` (perfiles aislados / modo portable).

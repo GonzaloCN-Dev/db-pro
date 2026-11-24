@@ -18,7 +18,7 @@
 
 Db Pro es una aplicación de escritorio en español para explorar y editar bases de datos desde una sola interfaz. Está escrita en C++ con Slint: sin Electron, sin WebView y sin servidores locales. Gratis y sin cuenta. Desarrollado por **Gonzalo Cruz Núñez**.
 
-> **Estado: desarrollo temprano (0.1.0).** Hoy solo **SQLite** está implementado y probado de extremo a extremo. El resto de motores se está añadiendo como drivers opcionales; consulta la [tabla de motores](#motores-de-bases-de-datos) y [`docs/PROGRESS.md`](docs/PROGRESS.md), donde solo se anota lo que se ha ejecutado de verdad.
+> **Estado: desarrollo temprano (0.2.0).** Consulta la [tabla de motores](#motores-de-bases-de-datos) y [`docs/PROGRESS.md`](docs/PROGRESS.md): solo se marcan como probados los motores con integración real.
 
 ## Capturas
 
@@ -70,7 +70,7 @@ Al elegir un motor en **Nueva conexión**, Db Pro comprueba si su driver (`dbpro
 
 ## Instalación
 
-1. Ejecuta el instalador **`DbPro-Setup-0.1.0.exe`**.
+1. Ejecuta el instalador **`DbPro-Setup-0.2.0.exe`**.
 2. No requiere permisos de administrador para instalarse en tu usuario.
 3. Durante la instalación puedes marcar los drivers opcionales que quieras incluir.
 4. Inicia Db Pro desde el menú Inicio.
@@ -133,7 +133,7 @@ Hecho con cuidado para que trabajar con tus bases de datos sea más sencillo.
 
 ### Status
 
-Early development (0.1.0). SQLite is built in. PostgreSQL, MySQL/MariaDB and MongoDB drivers have passed integration tests against real throwaway servers; the SQL Server driver is compile-tested only (no server available). PostgreSQL-, MySQL- and TDS-compatible engines (YugabyteDB, TiDB, EDB, CrateDB, ...) are listed as experimental and untested. Oracle, DB2, Firebird, DuckDB, Trino and the other engines that need a different native/ODBC/JDBC driver are not supported yet. See [`docs/PROGRESS.md`](docs/PROGRESS.md).
+Early development (0.2.0). SQLite is built in. PostgreSQL, MySQL/MariaDB, MongoDB and DuckDB have passed integration tests; SQL Server is compile-tested only. Check [`docs/PROGRESS.md`](docs/PROGRESS.md) for verified functionality and limitations.
 
 ### Features
 
