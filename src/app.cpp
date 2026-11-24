@@ -226,6 +226,7 @@ public:
         B().set_mon_columns(mon_columns_model_);
         B().set_mon_rows(mon_rows_model_);
         B().set_app_version(S(brand::kVersion));
+        B().set_app_copyright(S(brand::kCopyright));
         B().set_theme_index(store_.settings.dark ? 0 : 1);
         B().set_lang_index(store_.settings.lang == "es" ? 0 : 1);
         B().set_auto_update(store_.settings.auto_update);
@@ -268,6 +269,7 @@ private:
         if (condition == "table-open") return table_open_;
         if (condition == "settings-open") return B().get_settings_open();
         if (condition == "about-open") return B().get_about_open();
+        if (condition == "copyright-visible") return U(B().get_app_copyright()) == brand::kCopyright;
         if (condition == "dirty") {
             if (!changes_.empty()) return true;
             for (const auto &t : tabs_) if (!t.changes.empty()) return true;
@@ -2080,6 +2082,7 @@ private:
     void open_settings()
     {
         B().set_app_version(S(brand::kVersion));
+        B().set_app_copyright(S(brand::kCopyright));
         B().set_theme_index(store_.settings.dark ? 0 : 1);
         B().set_lang_index(store_.settings.lang == "es" ? 0 : 1);
         B().set_auto_update(store_.settings.auto_update);

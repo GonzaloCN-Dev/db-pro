@@ -1,5 +1,8 @@
 ﻿# Changelog
 
+## 0.2.3
+- El nombre del autor y los derechos de autor quedan visibles permanentemente en la barra inferior y destacados en «Acerca de»: «Derechos de autor © 2026 Gonzalo Cruz Núñez».
+
 ## 0.2.2
 - Monitor con búsqueda de sesiones, filtro «solo bloqueadas», orden por columnas y mensajes orientativos para permisos de monitorización.
 - Actividad local real para SQLite (memoria de caché y contadores) y DuckDB (memoria del motor/almacenamiento temporal); no muestra sesiones ni ofrece terminación para estos motores.

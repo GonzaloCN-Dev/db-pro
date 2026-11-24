@@ -23,7 +23,7 @@
 | Actividad local | SQLite expone uso de caché/esquema/statement y contadores `sqlite3_db_status`; DuckDB expone memoria y almacenamiento temporal vía `duckdb_memory()`. No se inventan sesiones ni se permite terminar sesiones locales. |
 | Suite | `build\dbpro_tests.exe`: **76 tests, 0 fallidos**. DuckDB 1.5.6: **91/91** integración local. |
 | Diagnóstico de cierres | Formateo privacy-safe, fase thread-local y sanitización del nombre de módulo cubiertos por tests. Reproducción visual en SQLite temporal: conectar y abrir tabla sin cierre. El cierre remoto SQL Server reportado no se pudo reproducir; no se considera resuelto. |
-| Acerca de y ajustes | Autotest visual: copyright, versión, enlace al repo, controles de tamaño de página, idioma, tema e intervalo visibles; ajuste de filas persistido en store. |
+| Acerca de y ajustes | Autotest visual: «Derechos de autor © 2026 Gonzalo Cruz Núñez» visible permanentemente en la barra inferior y destacado en Acerca de; controles de tamaño de página, idioma, tema e intervalo visibles. |
 | Pestañas | Guardar/descartar explícito en cierre de pestaña. El autotest verifica dirty guard, descarte y cierre; no automatiza todavía el guardado efectivo ni cancelar. |
 | Artefactos 0.2.0 | Build MSVC, instalador Inno Setup y paquete de 5 drivers con `drivers.json` generados; checksum SHA-256 del instalador. Instalación silenciosa y actualización end-to-end aún no verificadas. |
 | Instalador/actualización 0.2.2 | Instalación 0.2.0 y actualización silenciosa 0.2.2 sobre la misma carpeta temporal; versión del EXE cambia correctamente y una carpeta de datos de usuario separada permanece intacta. El instalador reserva 50 MiB adicionales y el archivo `*-space.txt` informa ≈111 MiB para el paquete actual. |

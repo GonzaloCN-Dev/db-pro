@@ -1,3 +1,15 @@
+# Db Pro 0.2.3
+
+El crédito de autoría ahora queda visible en todo momento en la barra inferior y más destacado en «Acerca de»: **Derechos de autor © 2026 Gonzalo Cruz Núñez**.
+
+Instalador sin firma Authenticode (no había certificado disponible). Incluye el runtime de Visual C++.
+
+Descargas: `DbPro-Setup-0.2.3.exe` y `DbPro-Portable-0.2.3.zip`.
+
+Código y artefactos: https://github.com/GonzaloCN-Dev/db-pro/releases/tag/v0.2.3
+
+---
+
 # Db Pro 0.2.2
 
 Mejoras del monitor y del flujo de pruebas, actividad local para SQLite/DuckDB, instalador con estimación de espacio y ZIP portable.

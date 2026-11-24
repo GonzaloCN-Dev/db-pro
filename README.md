@@ -18,7 +18,7 @@
 
 Db Pro es una aplicación de escritorio en español para explorar y editar bases de datos desde una sola interfaz. Está escrita en C++ con Slint: sin Electron, sin WebView y sin servidores locales. Gratis y sin cuenta. Desarrollado por **Gonzalo Cruz Núñez**.
 
-> **Estado: desarrollo temprano (0.2.2).** Consulta la [tabla de motores](#motores-de-bases-de-datos) y [`docs/PROGRESS.md`](docs/PROGRESS.md): solo se marcan como probados los motores con integración real.
+> **Estado: desarrollo temprano (0.2.3).** Consulta la [tabla de motores](#motores-de-bases-de-datos) y [`docs/PROGRESS.md`](docs/PROGRESS.md): solo se marcan como probados los motores con integración real.
 
 ## Capturas
 
@@ -70,7 +70,7 @@ Al elegir un motor en **Nueva conexión**, Db Pro comprueba si su driver (`dbpro
 
 ## Instalación
 
-1. Ejecuta el instalador **`DbPro-Setup-0.2.2.exe`**.
+1. Ejecuta el instalador **`DbPro-Setup-0.2.3.exe`**.
 2. No requiere permisos de administrador para instalarse en tu usuario.
 3. Durante la instalación puedes marcar los drivers opcionales que quieras incluir.
 4. Inicia Db Pro desde el menú Inicio.
@@ -85,7 +85,7 @@ El instalador muestra el espacio requerido calculado por Inno Setup y reserva un
 
 ### Versión portable
 
-También está disponible **`DbPro-Portable-0.2.2.zip`**. Extrae la carpeta en una ubicación con permiso de escritura e inicia `DbPro-Portable.cmd`; los perfiles y ajustes se guardan en `data` junto a la aplicación. Las contraseñas siguen en el Administrador de credenciales de Windows del usuario actual: al mover la carpeta a otro usuario o equipo tendrás que volver a introducirlas.
+También está disponible **`DbPro-Portable-0.2.3.zip`**. Extrae la carpeta en una ubicación con permiso de escritura e inicia `DbPro-Portable.cmd`; los perfiles y ajustes se guardan en `data` junto a la aplicación. Las contraseñas siguen en el Administrador de credenciales de Windows del usuario actual: al mover la carpeta a otro usuario o equipo tendrás que volver a introducirlas.
 
 ### Tecnologías
 
@@ -137,7 +137,7 @@ Hecho con cuidado para que trabajar con tus bases de datos sea más sencillo.
 
 ### Status
 
-Early development (0.2.2). SQLite is built in. PostgreSQL, MySQL/MariaDB, MongoDB and DuckDB have passed integration tests; SQL Server is compile-tested only. Check [`docs/PROGRESS.md`](docs/PROGRESS.md) for verified functionality and limitations.
+Early development (0.2.3). SQLite is built in. PostgreSQL, MySQL/MariaDB, MongoDB and DuckDB have passed integration tests; SQL Server is compile-tested only. Check [`docs/PROGRESS.md`](docs/PROGRESS.md) for verified functionality and limitations.
 
 ### Features
 

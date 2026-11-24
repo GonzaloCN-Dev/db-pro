@@ -1,6 +1,8 @@
 # This script assumes the test runner created a disposable SQLite profile with customers/orders.
 size 1360 800
 wait 400
+assert copyright-visible
+shot copyright-footer
 assert not-connected
 assert monitor-unsupported
 click 100 146
