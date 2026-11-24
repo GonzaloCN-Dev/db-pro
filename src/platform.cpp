@@ -158,4 +158,11 @@ void reveal_in_explorer(const std::string &path)
     ShellExecuteW(nullptr, L"open", L"explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
 }
 
+void open_folder(const std::string &dir)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(widen(dir)), ec);
+    ShellExecuteW(nullptr, L"open", widen(dir).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
 } // namespace dbp::platform

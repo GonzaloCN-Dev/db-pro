@@ -17,6 +17,9 @@
 | Exportar todo lo filtrado (CSV) | 10.000 filas, todas con `country=Chile`, igual que el recuento independiente; BOM UTF-8; sin inyección de fórmulas |
 
 | Instalador (Inno Setup, como Rclone Lite) | `installer\build-installer.ps1` genera `dist\DbPro-Setup-0.1.0.exe` (9,7 MB). Probado: instalación silenciosa en carpeta temporal, archivos y registro correctos, la app instalada arranca y detecta el driver de `drivers\` sin descargar, desinstalación limpia (carpeta, registro y acceso directo). No probado: instalación en el Program Files con permisos de administrador, ni actualizar sobre una versión anterior |
+| Ajustes, pestañas y vista de rendimiento | Compilación MSVC correcta. Autotest visual en 1360×800: preferencias, selector de idioma/tema/intervalo, dos tablas SQLite abiertas en pestañas y cambio de vista. SQLite muestra correctamente el estado de monitoreo no soportado. |
+| Updater | Compilación y 3 tests unitarios (comparación de versiones, validación de release/checksum/URL, vector SHA-256). El flujo real de descarga, instalación y relanzamiento no se ha ejecutado. |
+| Suite | `build\dbpro_tests.exe`: **67 tests, 0 fallidos**. |
 
 ## Cómo se prueba la interfaz
 `DBPRO_SELFTEST=<script>` activa `src/selftest.cpp`: inyecta clics/teclas en la ventana de Slint y guarda capturas de esa ventana (`shot`). No toca el escritorio real. Variables: `DBPRO_SELFTEST_OUT`, `DBPRO_SELFTEST_EXPORT` (ruta sin extensión, evita el diálogo nativo), `DBPRO_DATA_DIR` (perfiles aislados / modo portable).
@@ -27,6 +30,8 @@
 - Editor SQL, importación, cancelar consulta/exportación, ventana con muchos datos (scroll horizontal con ratón real).
 - Medidas de arranque en frío y de memoria con 70k filas cargadas (`docs/BENCHMARKS.md` pendiente).
 - Instalador y versión portable.
+- Monitor en vivo y finalización de sesiones contra un servidor PostgreSQL, MongoDB o SQL Server real. El estado no soportado de SQLite sí se verificó visualmente.
+- Descarga de una release y actualización/relanzamiento con el instalador en una instalación separada.
 
 ## Motores
 | Motor | Estado |

@@ -43,6 +43,9 @@ Db Pro es una aplicación de escritorio en español para explorar y editar bases
 | **Seguridad al editar** | Una fila se identifica por su clave primaria. Sin clave, o en una vista, la edición está bloqueada y la aplicación te dice por qué. |
 | **Exportar** | Exporta **todas** las filas que cumplen el filtro (no solo la página visible), en bloques, sin cargar el resultado entero en memoria. Formatos: CSV, TSV, JSON, NDJSON y SQL INSERT (los exportadores tienen tests automáticos; en la interfaz solo se ha comprobado CSV). |
 | **Editor SQL** | Ejecuta consultas con `Ctrl+Intro` o `F5`, con límite de filas, cancelación y exportación del resultado. Botones para abrir y guardar archivos `.sql` (aún sin probar). |
+| **Pestañas de tablas** | Mantén varias tablas abiertas; cada pestaña conserva sus filtros, orden, página y cambios pendientes. |
+| **Rendimiento en vivo** | Actividad, bloqueos y sesiones para los motores que lo soportan. Terminar una sesión requiere confirmación; los motores no compatibles lo indican explícitamente. |
+| **Ajustes y actualizaciones** | Preferencias de tema, idioma e intervalo del monitor. El comprobador de versiones es opcional; el instalador se verifica con SHA-256 antes de ejecutarse. |
 | **Conexiones seguras** | Las contraseñas van al Administrador de credenciales de Windows, nunca a un archivo. Modo de solo lectura y etiqueta de entorno (Desarrollo, Pruebas, Preproducción, PRODUCCIÓN). |
 | **TLS** | La validación del certificado está activada por defecto; confiar sin validar es una opción explícita. |
 | **Drivers opcionales** | Solo SQLite viene dentro de la aplicación. Cada motor extra es una DLL que se descarga o instala únicamente si la eliges. |
@@ -104,7 +107,7 @@ El instalador queda en `dist\DbPro-Setup-<versión>.exe`. Para preparar los driv
 
 ## Datos y privacidad
 
-Las conexiones y los ajustes se guardan localmente en `%APPDATA%\DbPro`. Las contraseñas se guardan en el Administrador de credenciales de Windows y los perfiles exportados no las incluyen. Db Pro **no envía telemetría**, no muestra anuncios y no necesita una cuenta. La única conexión a Internet que hace por su cuenta es la descarga de un driver, y solo cuando tú pulsas el botón.
+Las conexiones y los ajustes se guardan localmente en `%APPDATA%\DbPro`. Las contraseñas se guardan en el Administrador de credenciales de Windows y los perfiles exportados no las incluyen. Db Pro **no envía telemetría**, no muestra anuncios y no necesita una cuenta. Las descargas de drivers solo ocurren cuando las solicitas. Si activas el comprobador de versiones o pulsas «Buscar actualizaciones», Db Pro consulta por HTTPS las releases públicas del proyecto en GitHub; no envía información de la aplicación ni de tus bases de datos.
 
 ## Licencias
 

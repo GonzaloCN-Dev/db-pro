@@ -208,7 +208,10 @@ public:
     void open_first()
     {
         std::lock_guard<std::mutex> g(m_);
-        home();
+        Sess &s = home();
+        // CockroachDB speaks the wire protocol but has no pg_stat_activity / pg_blocking_pids: the monitor stays off for it.
+        Res r = run(s, "SELECT version()", {});
+        if (PQntuples(r.r) > 0) cockroach_ = lower(PQgetvalue(r.r, 0, 0)).find("cockroachdb") != std::string::npos;
     }
 
     Capabilities caps() const override
@@ -220,6 +223,8 @@ public:
         c.schemas = true;
         c.sql = true;
         c.default_keyword = true;
+        c.activity = !cockroach_;
+        c.kill_session = !cockroach_ && !p_.read_only;
         return c;
     }
 
@@ -233,11 +238,16 @@ public:
 
     void close() override
     {
-        std::lock_guard<std::mutex> g(m_);
-        closed_ = true;
-        for (auto &kv : sessions_)
-            if (kv.second.c) PQfinish(kv.second.c);
-        sessions_.clear();
+        {
+            std::lock_guard<std::mutex> g(m_);
+            closed_ = true;
+            for (auto &kv : sessions_)
+                if (kv.second.c) PQfinish(kv.second.c);
+            sessions_.clear();
+        }
+        std::lock_guard<std::mutex> mg(mm_);
+        if (mon_.c) PQfinish(mon_.c);
+        mon_.c = nullptr;
     }
 
     std::vector<ObjectInfo> list_databases() override
@@ -598,9 +608,91 @@ public:
         return it != sessions_.end() && it->second.in_tx;
     }
 
+    Activity activity() override
+    {
+        std::lock_guard<std::mutex> g(mm_);
+        Sess &s = monitor();
+        Activity a;
+        auto num = [](PGresult *r, int col) { return PQgetisnull(r, 0, col) ? 0.0 : std::strtod(PQgetvalue(r, 0, col), nullptr); };
+        {
+            Res r = run(s,
+                        "SELECT (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend'), "
+                        "(SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend' AND state = 'active' AND pid <> pg_backend_pid()), "
+                        "(SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend' AND cardinality(pg_blocking_pids(pid)) > 0), "
+                        "current_setting('max_connections')::float8, "
+                        "coalesce(sum(xact_commit + xact_rollback), 0)::float8, coalesce(sum(tup_returned + tup_fetched), 0)::float8, "
+                        "coalesce(sum(tup_inserted + tup_updated + tup_deleted), 0)::float8, coalesce(sum(blks_read), 0)::float8, "
+                        "coalesce(sum(deadlocks), 0)::float8, coalesce(sum(temp_bytes), 0)::float8 FROM pg_stat_database",
+                        {});
+            if (PQntuples(r.r) == 1 && PQnfields(r.r) == 10) {
+                a.metrics = { { "sessions", "Sessions", num(r.r, 0), false, "" },
+                              { "active", "Running", num(r.r, 1), false, "" },
+                              { "blocked", "Blocked", num(r.r, 2), false, "" },
+                              { "max_sessions", "Max sessions", num(r.r, 3), false, "" },
+                              { "tps", "Transactions", num(r.r, 4), true, "" },
+                              { "rows_read", "Rows read", num(r.r, 5), true, "" },
+                              { "rows_written", "Rows written", num(r.r, 6), true, "" },
+                              { "disk_reads", "Disk block reads", num(r.r, 7), true, "" },
+                              { "deadlocks", "Deadlocks (total)", num(r.r, 8), false, "" },
+                              { "temp_bytes", "Temp files written", num(r.r, 9), true, "B" } };
+            }
+        }
+        Res r = run(s,
+                    "SELECT pid::text, coalesce(usename, ''), coalesce(datname, ''), coalesce(application_name, ''), coalesce(client_addr::text, ''), "
+                    "coalesce(state, ''), coalesce(wait_event_type || ':' || wait_event, ''), "
+                    "coalesce(round(extract(epoch FROM (now() - coalesce(query_start, xact_start, backend_start)))::numeric, 1)::text, ''), "
+                    "coalesce(array_to_string(pg_blocking_pids(pid), ','), ''), coalesce(query, '') "
+                    "FROM pg_stat_activity WHERE backend_type = 'client backend' AND pid <> pg_backend_pid() "
+                    "ORDER BY (cardinality(pg_blocking_pids(pid)) > 0) DESC, (state = 'active') DESC, query_start NULLS LAST LIMIT 500",
+                    {});
+        a.columns = { "id", "user", "database", "app", "client", "state", "wait", "seconds", "blocked_by", "query" };
+        a.id_col = 0;
+        a.blocked_col = 8;
+        a.query_col = 9;
+        std::vector<TypeClass> cls(10, TypeClass::Text);
+        for (int i = 0; i < PQntuples(r.r); ++i) a.rows.push_back(read_row(r.r, i, cls));
+        return a;
+    }
+
+    void kill_session(const std::string &id) override
+    {
+        if (p_.read_only) throw DbError(ErrKind::ReadOnly, "Connection is read-only");
+        long pid = 0;
+        auto [end, ec] = std::from_chars(id.data(), id.data() + id.size(), pid);
+        if (ec != std::errc() || end != id.data() + id.size() || pid <= 0) throw DbError(ErrKind::Validation, "invalid session id");
+        {
+            std::lock_guard<std::mutex> g(m_);
+            for (auto &kv : sessions_)
+                if (kv.second.c && PQbackendPID(kv.second.c) == (int)pid) throw DbError(ErrKind::Validation, "this is Db Pro's own session");
+        }
+        std::lock_guard<std::mutex> g(mm_);
+        Sess &s = monitor();
+        if (PQbackendPID(s.c) == (int)pid) throw DbError(ErrKind::Validation, "this is Db Pro's own session");
+        Res r = run(s, "SELECT pg_terminate_backend($1::int)", { Value::integer(pid) });
+        if (PQntuples(r.r) == 1 && std::string(PQgetvalue(r.r, 0, 0)) != "t") throw DbError(ErrKind::Query, "the server did not terminate the session (insufficient privilege or it already ended)");
+    }
+
 private:
     std::string home_name() const { return p_.database.empty() ? "postgres" : p_.database; }
     Sess &home() { return session(home_name()); }
+
+    // Called with mm_ held. A connection of its own, so a long query on the main one never delays the monitor.
+    Sess &monitor()
+    {
+        if (closed_) throw DbError(ErrKind::Connection, "connection closed");
+        if (mon_.c && PQstatus(mon_.c) == CONNECTION_OK) return mon_;
+        if (mon_.c) PQfinish(mon_.c);
+        mon_.c = nullptr;
+        mon_.c = open_raw(home_name());
+        try {
+            simple(mon_, "SET statement_timeout = 8000");
+        } catch (...) {
+            PQfinish(mon_.c);
+            mon_.c = nullptr;
+            throw;
+        }
+        return mon_;
+    }
 
     // Called with m_ held. PostgreSQL connections are bound to one database, so the explorer keeps one per database it visits.
     Sess &session(const std::string &db_in)
@@ -720,8 +812,9 @@ private:
 
     PgParams p_;
     std::map<std::string, Sess> sessions_;
-    bool closed_ = false;
-    std::mutex m_;
+    Sess mon_;
+    bool closed_ = false, cockroach_ = false;
+    std::mutex m_, mm_;
 };
 
 } // namespace

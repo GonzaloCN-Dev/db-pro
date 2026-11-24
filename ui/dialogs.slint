@@ -1,7 +1,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Backend } from "backend.slint";
-import { Icon, Btn, IconBtn, TextField, Check, Dropdown, Segmented, FieldLabel, Sep, Spinner } from "widgets.slint";
+import { Icon, Btn, IconBtn, TextField, Check, Dropdown, Segmented, FieldLabel, Sep, Spinner, ProgressBar } from "widgets.slint";
 
 component Modal inherits Rectangle {
     in property <length> dlg-width: 460px;
@@ -287,5 +287,132 @@ export component DetailDialog inherits Modal {
     HorizontalLayout {
         alignment: end;
         Btn { text: Backend.t("close"); clicked => { Backend.detail-open = false; } }
+    }
+}
+
+export component SettingsDialog inherits Modal {
+    title: Backend.t("settings.title");
+    dlg-width: 540px;
+    dismissed => { Backend.settings-open = false; }
+    VerticalLayout {
+        spacing: 4px;
+        FieldLabel { text: Backend.t("settings.appearance"); }
+        Segmented {
+            model: [Backend.t("settings.dark"), Backend.t("settings.light")];
+            current-index: Backend.theme-index;
+            selected(i) => { Backend.settings-theme(i); }
+        }
+    }
+    VerticalLayout {
+        spacing: 4px;
+        FieldLabel { text: Backend.t("settings.language"); }
+        Segmented {
+            model: ["Español", "English"];
+            current-index: Backend.lang-index;
+            selected(i) => { Backend.settings-lang(i); }
+        }
+    }
+    VerticalLayout {
+        spacing: 4px;
+        FieldLabel { text: Backend.t("settings.monitor-interval"); }
+        Segmented {
+            model: ["1 s", "2 s", "5 s", "10 s", "30 s"];
+            current-index: Backend.monitor-interval-index;
+            selected(i) => { Backend.settings-monitor-interval(i); }
+        }
+    }
+    Sep { }
+    VerticalLayout {
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: Backend.t("settings.updates");
+                font-size: 11px;
+                font-weight: 700;
+                color: Theme.text-faint;
+                vertical-alignment: center;
+            }
+            Rectangle { }
+            Text {
+                text: Backend.t("settings.version") + " " + Backend.app-version;
+                font-size: 12px;
+                color: Theme.text-dim;
+                vertical-alignment: center;
+            }
+        }
+        Check {
+            text: Backend.t("settings.auto-update");
+            checked: Backend.auto-update;
+            toggled(c) => { Backend.settings-auto-update(c); }
+        }
+        Text {
+            text: Backend.t("settings.update-privacy");
+            font-size: 11px;
+            color: Theme.text-faint;
+            wrap: word-wrap;
+        }
+        if Backend.upd-text != "": HorizontalLayout {
+            spacing: 8px;
+            if Backend.upd-state == 1 || Backend.upd-state == 5: Spinner { size: 14px; }
+            Text {
+                text: Backend.upd-text;
+                font-size: 12px;
+                color: Backend.upd-state == 6 ? Theme.danger : Backend.upd-state == 3 ? Theme.accent : Theme.text;
+                wrap: word-wrap;
+                vertical-alignment: center;
+            }
+        }
+        if Backend.upd-state == 3 && Backend.upd-notes != "": Rectangle {
+            height: 110px;
+            background: Theme.surface2;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: Theme.border;
+            clip: true;
+            ScrollView {
+                Text {
+                    x: 10px;
+                    y: 8px;
+                    width: parent.visible-width - 20px;
+                    text: Backend.upd-notes;
+                    font-size: 11px;
+                    color: Theme.text-dim;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        if Backend.upd-state == 4: ProgressBar { value: Backend.upd-progress; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Btn {
+                text: Backend.t("settings.check");
+                icon: "\u{E72C}";
+                enabled: Backend.upd-state != 1 && Backend.upd-state != 4 && Backend.upd-state != 5;
+                clicked => { Backend.check-updates(); }
+            }
+            if Backend.upd-state == 3: Btn {
+                text: Backend.t("settings.install");
+                icon: "\u{E896}";
+                kind: "primary";
+                clicked => { Backend.start-update(); }
+            }
+        }
+    }
+    Sep { }
+    VerticalLayout {
+        spacing: 8px;
+        FieldLabel { text: Backend.t("settings.folders"); }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Btn { text: Backend.t("settings.data-dir"); icon: "\u{E8B7}"; clicked => { Backend.open-data-dir(); } }
+            Btn { text: Backend.t("settings.drivers-dir"); icon: "\u{E8B7}"; clicked => { Backend.open-drivers-dir(); } }
+        }
+    }
+    HorizontalLayout {
+        alignment: end;
+        Btn { text: Backend.t("close"); clicked => { Backend.settings-open = false; } }
     }
 }

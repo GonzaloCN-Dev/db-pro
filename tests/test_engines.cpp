@@ -28,7 +28,7 @@ TEST(every_engine_has_a_real_route)
 TEST(only_engines_tested_against_a_real_server_are_marked_tested)
 {
     // Keep this list in sync with docs/PROGRESS.md: adding an id here requires integration results.
-    std::set<std::string> tested = { "sqlite", "postgres", "mariadb", "mongodb", "cockroachdb" };
+    std::set<std::string> tested = { "sqlite", "postgres", "mariadb", "mongodb", "cockroachdb", "duckdb" };
     for (auto &e : engine_catalog()) {
         bool t = e.status == EngineStatus::Tested;
         CHECK(t == (tested.count(e.id) == 1));

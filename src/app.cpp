@@ -5,7 +5,11 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <ctime>
+#include <deque>
 #include <fstream>
+#include <map>
+#include <set>
 #include <memory>
 #include <sstream>
 #include <thread>
@@ -23,6 +27,7 @@
 #include "platform.h"
 #include "selftest.h"
 #include "store.h"
+#include "updater.h"
 
 using namespace dbp;
 using i18n::tr;
@@ -128,7 +133,72 @@ struct ColFilter {
 
 enum class TotalMode { Unknown, Estimated, Exact };
 
+const int kMonitorIntervals[] = { 1, 2, 5, 10, 30 };
+const size_t kMaxTabs = 16;
+const size_t kSparkPoints = 60;
+
+std::string human_bytes(double v)
+{
+    static const char *units[] = { "B", "KB", "MB", "GB", "TB" };
+    int u = 0;
+    while (v >= 1024.0 && u < 4) { v /= 1024.0; ++u; }
+    char buf[32];
+    std::snprintf(buf, sizeof buf, u == 0 ? "%.0f %s" : "%.1f %s", v, units[u]);
+    return buf;
+}
+
+std::string plain_number(double v, bool fractional)
+{
+    char buf[48];
+    if (fractional && v < 10.0 && v != std::floor(v)) std::snprintf(buf, sizeof buf, "%.1f", v);
+    else return i18n::with_commas((unsigned long long)std::max(0.0, std::round(v)));
+    return buf;
+}
+
+std::string clock_text()
+{
+    std::time_t t = std::time(nullptr);
+    std::tm tmv {};
+    localtime_s(&tmv, &t);
+    char buf[16];
+    std::strftime(buf, sizeof buf, "%H:%M:%S", &tmv);
+    return buf;
+}
+
+// SVG path for a sparkline in a 100 x 24 box.
+std::string spark_path(const std::deque<double> &h)
+{
+    if (h.size() < 2) return "";
+    double lo = *std::min_element(h.begin(), h.end()), hi = *std::max_element(h.begin(), h.end());
+    std::string out;
+    char buf[48];
+    for (size_t i = 0; i < h.size(); ++i) {
+        double x = 100.0 * (double)i / (double)(h.size() - 1);
+        double y = hi > lo ? 22.0 - (h[i] - lo) / (hi - lo) * 20.0 : 12.0;
+        std::snprintf(buf, sizeof buf, "%c %.1f %.1f ", i == 0 ? 'M' : 'L', x, y);
+        out += buf;
+    }
+    return out;
+}
+
 } // namespace
+
+struct TabState {
+    std::string title;
+    TableRef ref; // the node that opened it; used to focus an already open table
+    TableMeta meta;
+    PageRequest req;
+    std::vector<std::vector<Value>> rows;
+    ChangeSet changes;
+    std::vector<ColFilter> filters;
+    std::vector<double> widths;
+    FilterGroup pending_group;
+    std::string pending_sig, applied_sig, query_text;
+    int applied_filter_count = 0, sel_row = -1, sel_col = -1;
+    TotalMode total_mode = TotalMode::Unknown;
+    uint64_t total = 0;
+    bool has_more = false, editable = false, page_loaded = false;
+};
 
 class Controller {
 public:
@@ -148,6 +218,15 @@ public:
         B().set_sql_columns(sql_columns_model_);
         B().set_sql_rows(sql_rows_model_);
         B().set_tree(tree_model_);
+        B().set_tabs(tabs_model_);
+        B().set_mon_metrics(mon_metrics_model_);
+        B().set_mon_columns(mon_columns_model_);
+        B().set_mon_rows(mon_rows_model_);
+        B().set_app_version(S(brand::kVersion));
+        B().set_theme_index(store_.settings.dark ? 0 : 1);
+        B().set_lang_index(store_.settings.lang == "es" ? 0 : 1);
+        B().set_auto_update(store_.settings.auto_update);
+        B().set_monitor_interval_index(monitor_interval_index());
         B().set_op_menu(op_menu_model_);
         B().set_cd_engines(engines_model_);
         B().set_status_right(S(std::string(brand::kName) + " " + brand::kVersion));
@@ -163,6 +242,7 @@ public:
             selftest = std::make_unique<SelfTest>(ui_->window(), script, out ? out : ".");
             selftest->start();
         }
+        startup_update_check();
         ui_->run();
         shutdown();
         return 0;
@@ -197,6 +277,7 @@ private:
         if (fetch_cancel_) fetch_cancel_->cancel();
         if (sql_cancel_) sql_cancel_->cancel();
         if (exp_cancel_) exp_cancel_->cancel();
+        stop_monitor();
         auto until = Clock::now() + std::chrono::seconds(2);
         while (workers_ > 0 && Clock::now() < until) std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
@@ -235,22 +316,39 @@ private:
         auto &b = ui_->global<Backend>();
         b.on_tr([](slint::SharedString key, int) { return S(tr(U(key))); });
 
-        b.on_toggle_theme([this] {
-            store_.settings.dark = !store_.settings.dark;
-            ui_->global<Theme>().set_dark(store_.settings.dark);
+        b.on_toggle_theme([this] { set_dark(!store_.settings.dark); });
+        b.on_toggle_language([this] { set_language(store_.settings.lang == "es" ? "en" : "es"); });
+        b.on_open_settings([this] { open_settings(); });
+        b.on_settings_theme([this](int i) { set_dark(i == 0); });
+        b.on_settings_lang([this](int i) { set_language(i == 0 ? "es" : "en"); });
+        b.on_settings_auto_update([this](bool on) {
+            store_.settings.auto_update = on;
+            B().set_auto_update(on);
             store_.save();
         });
-        b.on_toggle_language([this] {
-            store_.settings.lang = store_.settings.lang == "es" ? "en" : "es";
-            i18n::set_language(store_.settings.lang);
-            B().set_lang_rev(B().get_lang_rev() + 1);
-            refresh_engines();
-            update_pending();
-            update_pager();
-            update_blocked();
-            if (!connected_) set_status(tr("ready"));
+        b.on_settings_monitor_interval([this](int i) {
+            store_.settings.monitor_interval = kMonitorIntervals[std::clamp(i, 0, 4)];
+            B().set_monitor_interval_index(monitor_interval_index());
             store_.save();
+            if (monitor_active()) start_monitor();
         });
+        b.on_check_updates([this] { check_updates(false); });
+        b.on_start_update([this] { start_update(); });
+        b.on_open_data_dir([this] { platform::open_folder(platform::data_dir()); });
+        b.on_open_drivers_dir([this] { platform::open_folder(drivers::user_drivers_dir()); });
+
+        // tabs and monitor
+        b.on_tab_clicked([this](int i) { switch_tab(i); });
+        b.on_tab_close([this](int i) { close_tab(i); });
+        b.on_view_changed([this](int v) { view_changed(v); });
+        b.on_mon_select([this](int i) { monitor_select(i); });
+        b.on_mon_kill([this] { monitor_kill(); });
+        b.on_mon_toggle_pause([this] {
+            mon_paused_ = !mon_paused_;
+            B().set_mon_paused(mon_paused_);
+            if (!mon_paused_) poll_monitor(true);
+        });
+        b.on_mon_refresh([this] { poll_monitor(true); });
         b.on_about([this] {
             notify(tr("about.title"), trf("about.text", { brand::kVersion, brand::kCopyright }));
         });
@@ -261,7 +359,7 @@ private:
         b.on_tree_toggled([](int) {});
         b.on_tree_activated([](int) {});
         b.on_tree_edit([this](int i) { open_connection_editor(i); });
-        b.on_tree_disconnect([this](int) { guard([this] { disconnect(); }); });
+        b.on_tree_disconnect([this](int) { guard_all([this] { disconnect(); }); });
         b.on_tree_delete([this](int i) { delete_profile(i); });
         b.on_refresh_tree([this] { refresh_tree(); });
         b.on_new_connection([this] { open_connection_editor(-1); });
@@ -555,7 +653,7 @@ private:
         store_.save();
         B().set_conn_dlg_open(false);
         rebuild_tree();
-        if (connect_after) guard([this, p] { connect(p); });
+        if (connect_after) guard_all([this, p] { connect(p); });
     }
 
     void delete_profile(int flat_index)
@@ -606,6 +704,8 @@ private:
                     B().set_conn_env(p.env);
                     B().set_conn_read_only(p.read_only);
                     B().set_server_info(S(info));
+                    reset_monitor_ui();
+                    if (B().get_view() == 2) start_monitor();
                     set_status(trf("status.connected", { p.name }) + " — " + info);
                     set_busy();
                     rebuild_tree();
@@ -641,6 +741,8 @@ private:
         rows_.clear();
         root_ = Node();
         spawn([c] { c->close(); });
+        stop_monitor();
+        clear_tabs();
         B().set_connected(false);
         B().set_has_table(false);
         B().set_conn_name(S(""));
@@ -648,6 +750,7 @@ private:
         B().set_conn_read_only(false);
         B().set_server_info(S(""));
         B().set_edit_row(-1);
+        reset_monitor_ui();
         clear_table_ui();
         set_status(tr("status.disconnected"));
         set_busy();
@@ -756,7 +859,7 @@ private:
                 rebuild_tree();
             } else {
                 Profile copy = p;
-                guard([this, copy] { connect(copy); });
+                guard_all([this, copy] { connect(copy); });
             }
             return;
         }
@@ -812,6 +915,21 @@ private:
                 });
     }
 
+    // Like guard(), but also covers the pending changes kept in background tabs.
+    void guard_all(std::function<void()> proceed)
+    {
+        bool others = false;
+        for (size_t i = 0; i < tabs_.size(); ++i)
+            if ((int)i != active_tab_ && !tabs_[i].changes.empty()) others = true;
+        if (!others) { guard(std::move(proceed)); return; }
+        size_t n = changes_.empty() ? 0 : changes_.affected_rows();
+        for (size_t i = 0; i < tabs_.size(); ++i)
+            if ((int)i != active_tab_) n += tabs_[i].changes.affected_rows();
+        confirm(tr("unsaved.title"), trf("unsaved.text", { std::to_string(n) }), "", tr("unsaved.discard"), "", true, false, [proceed](int r) {
+            if (r == 1) proceed();
+        });
+    }
+
     void discard_changes()
     {
         changes_.clear();
@@ -819,6 +937,164 @@ private:
         B().set_edit_col(-1);
         refresh_rows();
         update_pending();
+    }
+
+    // ------------------------------------------------------------------ table tabs
+    // The Controller keeps ONE live set of table members (meta_, rows_, changes_, ...). Tabs not on screen hold
+    // a snapshot in tabs_; switching swaps snapshots in and out.
+    static bool same_table(const TableRef &a, const TableRef &b) { return a.database == b.database && a.schema == b.schema && a.name == b.name; }
+
+    void update_tabs_ui()
+    {
+        std::vector<TabUi> v;
+        for (size_t i = 0; i < tabs_.size(); ++i) {
+            const TabState &t = tabs_[i];
+            bool dup = false;
+            for (size_t k = 0; k < tabs_.size(); ++k)
+                if (k != i && tabs_[k].ref.name == t.ref.name) dup = true;
+            TabUi u {};
+            u.title = S(dup ? t.ref.label() : t.ref.name);
+            u.active = (int)i == active_tab_;
+            u.dirty = u.active ? !changes_.empty() : !t.changes.empty();
+            v.push_back(u);
+        }
+        tabs_model_->set_vector(v);
+    }
+
+    void save_tab(int i)
+    {
+        if (i < 0 || i >= (int)tabs_.size()) return;
+        TabState &t = tabs_[i];
+        t.meta = meta_;
+        t.req = req_;
+        t.rows = std::move(rows_);
+        t.changes = std::move(changes_);
+        t.filters = filters_;
+        t.widths = widths_;
+        t.pending_group = pending_group_;
+        t.pending_sig = pending_sig_;
+        t.applied_sig = applied_sig_;
+        t.query_text = U(B().get_query_text());
+        t.applied_filter_count = applied_filter_count_;
+        t.sel_row = B().get_sel_row();
+        t.sel_col = B().get_sel_col();
+        t.total_mode = total_mode_;
+        t.total = total_;
+        t.has_more = has_more_;
+        t.editable = editable_;
+        t.page_loaded = page_loaded_;
+        rows_.clear();
+        changes_ = ChangeSet();
+    }
+
+    void restore_tab(int i)
+    {
+        if (i < 0 || i >= (int)tabs_.size()) return;
+        TabState &t = tabs_[i];
+        meta_ = t.meta;
+        table_ref_ = meta_.table;
+        req_ = t.req;
+        rows_ = std::move(t.rows);
+        changes_ = std::move(t.changes);
+        filters_ = t.filters;
+        widths_ = t.widths;
+        pending_group_ = t.pending_group;
+        pending_sig_ = t.pending_sig;
+        applied_sig_ = t.applied_sig;
+        applied_filter_count_ = t.applied_filter_count;
+        total_mode_ = t.total_mode;
+        total_ = t.total;
+        has_more_ = t.has_more;
+        editable_ = t.editable;
+        page_loaded_ = t.page_loaded;
+        t.rows.clear();
+        t.changes = ChangeSet();
+        active_tab_ = i;
+        table_open_ = true;
+
+        ++fetch_gen_;
+        if (fetch_cancel_) fetch_cancel_->cancel();
+        if (count_cancel_) count_cancel_->cancel();
+        filter_timer_.stop();
+        loading_ = false;
+        B().set_loading(false);
+        B().set_has_table(true);
+        B().set_table_title(S(meta_.table.label()));
+        B().set_query_text(S(t.query_text));
+        B().set_filter_error(S(""));
+        B().set_filter_count(applied_filter_count_);
+        B().set_edit_row(-1);
+        B().set_edit_col(-1);
+        B().set_sel_row(t.sel_row);
+        B().set_sel_col(t.sel_col);
+        update_blocked();
+        refresh_columns();
+        refresh_rows();
+        update_pending();
+        update_pager();
+        scroll_to_row(std::max(0, t.sel_row));
+        rebuild_tree();
+        set_busy();
+        if (!page_loaded_) load_page(false, true);
+    }
+
+    void switch_tab(int i)
+    {
+        if (i < 0 || i >= (int)tabs_.size() || i == active_tab_ || saving_) return;
+        if (B().get_edit_row() >= 0) commit_edit(U(B().get_edit_text()), 0);
+        save_tab(active_tab_);
+        restore_tab(i);
+    }
+
+    void close_tab(int i)
+    {
+        if (i < 0 || i >= (int)tabs_.size() || saving_) return;
+        bool dirty = i == active_tab_ ? !changes_.empty() : !tabs_[i].changes.empty();
+        if (!dirty) { remove_tab(i); return; }
+        if (i == active_tab_) {
+            guard([this, i] { if (i < (int)tabs_.size()) remove_tab(i); });
+        } else {
+            confirm(tr("unsaved.title"), trf("unsaved.text", { std::to_string(tabs_[i].changes.affected_rows()) }), "", tr("unsaved.discard"), "", true, false, [this, i](int r) {
+                if (r == 1 && i < (int)tabs_.size()) remove_tab(i);
+            });
+        }
+    }
+
+    void remove_tab(int i)
+    {
+        if (i < 0 || i >= (int)tabs_.size()) return;
+        if (i != active_tab_) {
+            tabs_.erase(tabs_.begin() + i);
+            if (i < active_tab_) --active_tab_;
+            update_tabs_ui();
+            return;
+        }
+        B().set_edit_row(-1);
+        tabs_.erase(tabs_.begin() + i);
+        changes_ = ChangeSet();
+        rows_.clear();
+        if (!tabs_.empty()) {
+            restore_tab(std::min(i, (int)tabs_.size() - 1));
+            return;
+        }
+        active_tab_ = -1;
+        ++fetch_gen_;
+        if (fetch_cancel_) fetch_cancel_->cancel();
+        loading_ = false;
+        table_open_ = false;
+        B().set_loading(false);
+        B().set_has_table(false);
+        clear_table_ui();
+        update_tabs_ui();
+        rebuild_tree();
+        set_busy();
+    }
+
+    void clear_tabs()
+    {
+        tabs_.clear();
+        active_tab_ = -1;
+        update_tabs_ui();
     }
 
     // ------------------------------------------------------------------ table loading
@@ -845,8 +1121,12 @@ private:
 
     void open_table(const TableRef &ref)
     {
-        if (!connected_) return;
-        guard([this, ref] {
+        if (!connected_ || saving_) return;
+        for (size_t i = 0; i < tabs_.size(); ++i)
+            if (same_table(tabs_[i].ref, ref)) { switch_tab((int)i); return; }
+        if (tabs_.size() >= kMaxTabs) { notify(tr("tabs.limit-title"), trf("tabs.limit-text", { std::to_string(kMaxTabs) })); return; }
+        {
+            if (B().get_edit_row() >= 0) commit_edit(U(B().get_edit_text()), 0);
             uint64_t cg = conn_gen_;
             uint64_t fg = ++fetch_gen_;
             if (fetch_cancel_) fetch_cancel_->cancel();
@@ -858,11 +1138,16 @@ private:
             spawn([this, c, ref, cg, fg] {
                 try {
                     TableMeta m = c->table_meta(ref);
-                    post([this, cg, fg, m = std::move(m)]() mutable {
+                    post([this, cg, fg, ref, m = std::move(m)]() mutable {
                         if (cg != conn_gen_ || fg != fetch_gen_) return;
+                        if (active_tab_ >= 0) save_tab(active_tab_);
+                        tabs_.emplace_back();
+                        active_tab_ = (int)tabs_.size() - 1;
+                        tabs_.back().ref = ref;
                         meta_ = std::move(m);
                         table_ref_ = meta_.table;
                         table_open_ = true;
+                        page_loaded_ = false;
                         req_ = PageRequest();
                         req_.limit = (uint32_t)page_size_;
                         filters_.assign(meta_.columns.size(), ColFilter());
@@ -882,6 +1167,7 @@ private:
                         B().set_edit_row(-1);
                         update_blocked();
                         refresh_columns();
+                        update_pending();
                         rebuild_tree();
                         load_page(false, true);
                     });
@@ -893,10 +1179,11 @@ private:
                         B().set_loading(false);
                         set_busy();
                         set_status(trf("status.query-failed", { m }));
+                        if (table_open_ && !page_loaded_) load_page(false, true); // the tab on screen lost its load to this request
                     });
                 }
             });
-        });
+        }
     }
 
     static double default_width(const ColumnInfo &c)
@@ -988,6 +1275,7 @@ private:
             return;
         }
         rows_ = std::move(p.rows);
+        page_loaded_ = true;
         has_more_ = p.has_more;
         changes_.clear();
         if (!p.has_more) {
@@ -1180,6 +1468,7 @@ private:
         B().set_pending_text(S(trf("pending.summary", { std::to_string(aff), std::to_string(edited), std::to_string(ins), std::to_string(del) })));
         B().set_can_undo(changes_.can_undo());
         B().set_can_redo(changes_.can_redo());
+        update_tabs_ui();
     }
 
     // ------------------------------------------------------------------ sorting and filtering
@@ -1640,6 +1929,388 @@ private:
         });
     }
 
+    // ------------------------------------------------------------------ settings and updates
+    void set_dark(bool dark)
+    {
+        store_.settings.dark = dark;
+        ui_->global<Theme>().set_dark(dark);
+        B().set_theme_index(dark ? 0 : 1);
+        store_.save();
+    }
+
+    void set_language(const std::string &lang)
+    {
+        store_.settings.lang = lang;
+        i18n::set_language(lang);
+        B().set_lang_rev(B().get_lang_rev() + 1);
+        B().set_lang_index(lang == "es" ? 0 : 1);
+        refresh_engines();
+        update_pending();
+        update_pager();
+        update_blocked();
+        refresh_update_text();
+        if (mon_have_) render_activity();
+        if (!connected_) set_status(tr("ready"));
+        store_.save();
+    }
+
+    int monitor_interval_index() const
+    {
+        for (int k = 0; k < 5; ++k)
+            if (kMonitorIntervals[k] == store_.settings.monitor_interval) return k;
+        return 2;
+    }
+
+    void open_settings()
+    {
+        B().set_app_version(S(brand::kVersion));
+        B().set_theme_index(store_.settings.dark ? 0 : 1);
+        B().set_lang_index(store_.settings.lang == "es" ? 0 : 1);
+        B().set_auto_update(store_.settings.auto_update);
+        B().set_monitor_interval_index(monitor_interval_index());
+        B().set_settings_open(true);
+    }
+
+    void set_upd(int state, const std::string &key, std::vector<std::string> args = {})
+    {
+        upd_state_ = state;
+        upd_key_ = key;
+        upd_args_ = std::move(args);
+        B().set_upd_state(state);
+        refresh_update_text();
+    }
+
+    void refresh_update_text()
+    {
+        if (upd_key_.empty()) { B().set_upd_text(S("")); return; }
+        std::string t = tr(upd_key_);
+        for (size_t i = 0; i < upd_args_.size(); ++i) {
+            std::string tag = "{" + std::to_string(i) + "}";
+            for (size_t p = t.find(tag); p != std::string::npos; p = t.find(tag, p + upd_args_[i].size())) t.replace(p, tag.size(), upd_args_[i]);
+        }
+        B().set_upd_text(S(t));
+    }
+
+    // `silent` = the automatic startup check: it only lights the badge on the gear, it never shows errors.
+    void check_updates(bool silent)
+    {
+        if (upd_state_ == 1 || upd_state_ == 4 || upd_state_ == 5) return;
+        if (!silent) set_upd(1, "upd.checking");
+        store_.settings.last_update_check = (long long)std::time(nullptr);
+        store_.save();
+        spawn([this, silent] {
+            updater::Release r = updater::fetch_latest();
+            post([this, silent, r = std::move(r)]() mutable {
+                if (!r.ok) {
+                    if (!silent) set_upd(6, "upd.check-failed", { r.error });
+                    return;
+                }
+                if (updater::is_newer(r.version, brand::kVersion)) {
+                    release_ = std::move(r);
+                    B().set_update_badge(true);
+                    B().set_upd_notes(S(release_.notes));
+                    set_upd(3, "upd.available", { release_.version });
+                } else if (!silent) {
+                    set_upd(2, "upd.up-to-date", { brand::kVersion });
+                }
+            });
+        });
+    }
+
+    void start_update()
+    {
+        if (upd_state_ != 3 || release_.installer_url.empty()) return;
+        guard_all([this] { download_update(); });
+    }
+
+    void download_update()
+    {
+        updater::Release r = release_;
+        set_upd(4, "upd.downloading", { r.version, "0 %" });
+        B().set_upd_progress(0);
+        spawn([this, r] {
+            std::string dir = updater::download_dir();
+            std::string file = dir + "\\" + std::filesystem::path(r.installer_name).filename().string();
+            auto last = Clock::now() - std::chrono::seconds(1);
+            std::string err = updater::download(r.installer_url, file, [&](int64_t done, int64_t total) {
+                auto now = Clock::now();
+                if (now - last < std::chrono::milliseconds(150)) return;
+                last = now;
+                float frac = total > 0 ? (float)((double)done / (double)total) : 0.0f;
+                std::string pct = total > 0 ? std::to_string((int)(frac * 100)) + " %" : human_bytes((double)done);
+                post([this, frac, pct, v = r.version] {
+                    if (upd_state_ != 4) return;
+                    B().set_upd_progress(frac);
+                    set_upd(4, "upd.downloading", { v, pct });
+                });
+            });
+            bool bad_hash = false;
+            if (err.empty()) {
+                post([this] { set_upd(4, "upd.verifying"); });
+                std::error_code ec;
+                if (updater::sha256_file(file) != r.sha256) {
+                    bad_hash = true;
+                    std::filesystem::remove(std::filesystem::path(platform::widen(file)), ec);
+                }
+            }
+            post([this, err, bad_hash, file] {
+                if (!err.empty()) { set_upd(6, "upd.failed", { err }); return; }
+                if (bad_hash) { set_upd(6, "upd.hash-mismatch"); return; }
+                set_upd(5, "upd.starting");
+                if (!updater::run_installer(file)) { set_upd(6, "upd.installer-failed"); return; }
+                slint::Timer::single_shot(std::chrono::milliseconds(600), [] { slint::quit_event_loop(); });
+            });
+        });
+    }
+
+    void startup_update_check()
+    {
+        if (!store_.settings.auto_update || std::getenv("DBPRO_SELFTEST")) return;
+        long long now = (long long)std::time(nullptr);
+        if (now - store_.settings.last_update_check < 24 * 3600 && now >= store_.settings.last_update_check) return;
+        check_updates(true);
+    }
+
+    // ------------------------------------------------------------------ live performance monitor
+    bool monitor_active() const { return connected_ && B().get_view() == 2 && caps_.activity; }
+
+    void view_changed(int v)
+    {
+        if (v == 2) start_monitor();
+        else stop_monitor();
+    }
+
+    void start_monitor()
+    {
+        stop_monitor();
+        B().set_mon_supported(connected_ && caps_.activity);
+        if (!monitor_active()) return;
+        mon_timer_.start(slint::TimerMode::Repeated, std::chrono::seconds(store_.settings.monitor_interval), [this] { poll_monitor(false); });
+        poll_monitor(true);
+    }
+
+    void stop_monitor()
+    {
+        mon_timer_.stop();
+        ++mon_gen_;
+        mon_busy_ = false;
+        B().set_mon_loading(false);
+    }
+
+    void reset_monitor_ui()
+    {
+        mon_have_ = false;
+        mon_history_.clear();
+        mon_prev_.clear();
+        mon_sel_id_.clear();
+        mon_metrics_model_->set_vector({});
+        mon_columns_model_->set_vector({});
+        mon_rows_model_->set_vector({});
+        B().set_mon_supported(false);
+        B().set_mon_error(S(""));
+        B().set_mon_updated(S(""));
+        B().set_mon_summary(S(""));
+        B().set_mon_query(S(""));
+        B().set_mon_sel(-1);
+        B().set_mon_can_kill(false);
+        B().set_mon_content_width(0);
+    }
+
+    void poll_monitor(bool force)
+    {
+        if (!monitor_active() || mon_busy_ || (mon_paused_ && !force)) return;
+        mon_busy_ = true;
+        if (force) B().set_mon_loading(true);
+        uint64_t gen = mon_gen_, cg = conn_gen_;
+        auto c = conn_;
+        spawn([this, c, gen, cg] {
+            try {
+                Activity a = c->activity();
+                post([this, gen, cg, a = std::move(a)]() mutable {
+                    if (gen != mon_gen_ || cg != conn_gen_) return;
+                    mon_busy_ = false;
+                    B().set_mon_loading(false);
+                    B().set_mon_error(S(""));
+                    mon_activity_ = std::move(a);
+                    mon_have_ = true;
+                    mon_time_ = Clock::now();
+                    mon_updated_ = clock_text();
+                    absorb_metrics();
+                    render_activity();
+                });
+            } catch (const std::exception &e) {
+                std::string m = e.what();
+                post([this, gen, cg, m] {
+                    if (gen != mon_gen_ || cg != conn_gen_) return;
+                    mon_busy_ = false;
+                    B().set_mon_loading(false);
+                    B().set_mon_error(S(trf("mon.failed", { m })));
+                });
+            }
+        });
+    }
+
+    // Counters become per-second rates between two samples; every metric feeds its sparkline.
+    void absorb_metrics()
+    {
+        double dt = mon_prev_time_.time_since_epoch().count() ? std::chrono::duration<double>(mon_time_ - mon_prev_time_).count() : 0;
+        mon_rates_.clear();
+        for (const Metric &m : mon_activity_.metrics) {
+            double shown = m.value;
+            bool known = true;
+            if (m.counter) {
+                auto it = mon_prev_.find(m.key);
+                known = it != mon_prev_.end() && dt > 0.2 && m.value >= it->second;
+                shown = known ? (m.value - it->second) / dt : 0;
+                mon_prev_[m.key] = m.value;
+            }
+            mon_rates_[m.key] = known ? shown : -1;
+            if (known) {
+                auto &h = mon_history_[m.key];
+                h.push_back(shown);
+                if (h.size() > kSparkPoints) h.pop_front();
+            }
+        }
+        mon_prev_time_ = mon_time_;
+    }
+
+    double metric_value(const char *key) const
+    {
+        for (const Metric &m : mon_activity_.metrics)
+            if (m.key == key) return m.value;
+        return 0;
+    }
+
+    void render_activity()
+    {
+        const Activity &a = mon_activity_;
+        std::vector<MetricUi> metrics;
+        for (const Metric &m : a.metrics) {
+            MetricUi u {};
+            std::string label = tr("mon.m." + m.key);
+            u.label = S(label == "mon.m." + m.key ? m.label : label);
+            double r = mon_rates_.count(m.key) ? mon_rates_[m.key] : m.value;
+            if (r < 0) {
+                u.value = S("—");
+            } else if (m.unit == "B") {
+                u.value = S(human_bytes(r) + (m.counter ? "/s" : ""));
+            } else {
+                u.value = S(plain_number(r, m.counter));
+            }
+            auto h = mon_history_.find(m.key);
+            if (h != mon_history_.end()) u.spark = S(spark_path(h->second));
+            u.tone = 0;
+            if (m.key == "blocked" && m.value > 0) u.tone = 2;
+            else if (m.key == "sessions" && metric_value("max_sessions") > 0 && m.value / metric_value("max_sessions") >= 0.85) u.tone = 1;
+            else if ((m.key == "queued" || m.key == "row_lock_waits") && m.value > 0) u.tone = 1;
+            metrics.push_back(u);
+        }
+        mon_metrics_model_->set_vector(metrics);
+
+        static const std::map<std::string, double> weights = { { "id", 70 }, { "user", 110 }, { "database", 120 }, { "app", 120 }, { "client", 110 }, { "host", 120 },
+                                                               { "state", 100 }, { "command", 90 }, { "wait", 150 }, { "seconds", 80 }, { "blocked_by", 100 }, { "query", 420 } };
+        std::vector<ColumnUi> cols;
+        double x = 0;
+        for (const std::string &key : a.columns) {
+            ColumnUi u {};
+            std::string label = tr("mon.col." + key);
+            u.name = S(label == "mon.col." + key ? key : label);
+            auto w = weights.find(key);
+            double width = w == weights.end() ? 120 : w->second;
+            u.x = (float)x;
+            u.width = (float)width;
+            u.align_right = key == "seconds";
+            cols.push_back(u);
+            x += width;
+        }
+        mon_columns_model_->set_vector(cols);
+        B().set_mon_content_width((float)x);
+
+        std::set<std::string> blockers;
+        if (a.blocked_col >= 0) {
+            for (auto &row : a.rows) {
+                std::string list = row[a.blocked_col].display();
+                size_t s = 0;
+                while (s < list.size()) {
+                    size_t e = list.find(',', s);
+                    if (e == std::string::npos) e = list.size();
+                    blockers.insert(list.substr(s, e - s));
+                    s = e + 1;
+                }
+            }
+        }
+        std::vector<RowUi> rows;
+        int sel = -1;
+        for (size_t r = 0; r < a.rows.size(); ++r) {
+            RowUi row {};
+            auto cells = std::make_shared<slint::VectorModel<CellUi>>();
+            for (auto &v : a.rows[r]) {
+                CellUi c {};
+                c.text = S(cell_text(v.display(), 200));
+                cells->push_back(c);
+            }
+            row.cells = cells;
+            if (a.blocked_col >= 0 && !a.rows[r][a.blocked_col].display().empty()) row.state = 1;
+            else if (a.id_col >= 0 && blockers.count(a.rows[r][a.id_col].display())) row.state = 2;
+            if (a.id_col >= 0 && !mon_sel_id_.empty() && a.rows[r][a.id_col].display() == mon_sel_id_) sel = (int)r;
+            rows.push_back(row);
+        }
+        mon_rows_model_->set_vector(rows);
+        if (sel < 0) mon_sel_id_.clear();
+        B().set_mon_sel(sel);
+        update_monitor_selection(sel);
+
+        std::string upd = trf("mon.updated", { mon_updated_ });
+        if (mon_paused_) upd += " · " + tr("mon.paused");
+        B().set_mon_updated(S(upd));
+        B().set_mon_summary(S(trf("mon.summary", { plain_number(metric_value("sessions"), false), plain_number(metric_value("active"), false), plain_number(metric_value("blocked"), false) })));
+    }
+
+    void update_monitor_selection(int sel)
+    {
+        const Activity &a = mon_activity_;
+        std::string q;
+        if (sel >= 0 && sel < (int)a.rows.size() && a.query_col >= 0) q = a.rows[sel][a.query_col].display();
+        B().set_mon_query(S(q));
+        B().set_mon_can_kill(sel >= 0 && caps_.kill_session && !profile_.read_only);
+    }
+
+    void monitor_select(int i)
+    {
+        const Activity &a = mon_activity_;
+        if (i < 0 || i >= (int)a.rows.size() || a.id_col < 0) return;
+        mon_sel_id_ = a.rows[i][a.id_col].display();
+        B().set_mon_sel(i);
+        update_monitor_selection(i);
+    }
+
+    void monitor_kill()
+    {
+        if (mon_sel_id_.empty() || !caps_.kill_session || profile_.read_only || !connected_) return;
+        std::string id = mon_sel_id_;
+        confirm(trf("mon.kill-title", { id }), tr("mon.kill-text"), U(B().get_mon_query()).substr(0, 800), tr("mon.kill"), "", true, is_prod(), [this, id](int r) {
+            if (r != 1 || !connected_) return;
+            auto c = conn_;
+            uint64_t cg = conn_gen_;
+            spawn([this, c, id, cg] {
+                try {
+                    c->kill_session(id);
+                    post([this, id, cg] {
+                        if (cg != conn_gen_) return;
+                        set_status(trf("mon.kill-done", { id }));
+                        poll_monitor(true);
+                    });
+                } catch (const std::exception &e) {
+                    std::string m = e.what();
+                    post([this, cg, m] {
+                        if (cg != conn_gen_) return;
+                        notify(tr("mon.kill"), trf("mon.kill-failed", { m }));
+                    });
+                }
+            });
+        });
+    }
+
     // ------------------------------------------------------------------ SQL editor
     void run_sql(const std::string &text)
     {
@@ -1804,6 +2475,27 @@ private:
     int menu_col_ = -1;
     slint::Timer filter_timer_;
 
+    // tabs
+    std::vector<TabState> tabs_;
+    int active_tab_ = -1;
+    bool page_loaded_ = false;
+
+    // updates
+    updater::Release release_;
+    int upd_state_ = 0;
+    std::string upd_key_;
+    std::vector<std::string> upd_args_;
+
+    // performance monitor
+    slint::Timer mon_timer_;
+    bool mon_busy_ = false, mon_paused_ = false, mon_have_ = false;
+    uint64_t mon_gen_ = 0;
+    Activity mon_activity_;
+    Clock::time_point mon_time_, mon_prev_time_;
+    std::string mon_updated_, mon_sel_id_;
+    std::map<std::string, double> mon_prev_, mon_rates_;
+    std::map<std::string, std::deque<double>> mon_history_;
+
     // sql
     bool sql_running_ = false;
     CancelPtr sql_cancel_;
@@ -1820,6 +2512,10 @@ private:
     std::shared_ptr<slint::VectorModel<RowUi>> rows_model_ = std::make_shared<slint::VectorModel<RowUi>>();
     std::shared_ptr<slint::VectorModel<ColumnUi>> sql_columns_model_ = std::make_shared<slint::VectorModel<ColumnUi>>();
     std::shared_ptr<slint::VectorModel<RowUi>> sql_rows_model_ = std::make_shared<slint::VectorModel<RowUi>>();
+    std::shared_ptr<slint::VectorModel<TabUi>> tabs_model_ = std::make_shared<slint::VectorModel<TabUi>>();
+    std::shared_ptr<slint::VectorModel<MetricUi>> mon_metrics_model_ = std::make_shared<slint::VectorModel<MetricUi>>();
+    std::shared_ptr<slint::VectorModel<ColumnUi>> mon_columns_model_ = std::make_shared<slint::VectorModel<ColumnUi>>();
+    std::shared_ptr<slint::VectorModel<RowUi>> mon_rows_model_ = std::make_shared<slint::VectorModel<RowUi>>();
     std::shared_ptr<slint::VectorModel<TreeRowUi>> tree_model_ = std::make_shared<slint::VectorModel<TreeRowUi>>();
     std::shared_ptr<slint::VectorModel<slint::SharedString>> op_menu_model_ = std::make_shared<slint::VectorModel<slint::SharedString>>();
     std::shared_ptr<slint::VectorModel<slint::SharedString>> engines_model_ = std::make_shared<slint::VectorModel<slint::SharedString>>();

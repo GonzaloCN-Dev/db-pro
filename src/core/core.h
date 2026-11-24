@@ -291,6 +291,27 @@ struct Capabilities {
     bool sql = false;
     bool documents = false;
     bool default_keyword = false;
+    bool activity = false;     // activity() works: live sessions, blocked sessions and server counters
+    bool kill_session = false; // kill_session() works (and the profile is not read-only)
+};
+
+// ---------------------------------------------------------------- live server activity
+// One sample of what the server is doing right now. Read-only; produced by Connector::activity().
+struct Metric {
+    std::string key;   // stable id: "sessions", "active" and "blocked" are understood by the UI; others are engine specific
+    std::string label; // English label; the UI translates known keys
+    double value = 0;
+    bool counter = false; // cumulative counter: the UI shows the rate per second between two samples
+    std::string unit;     // "" (plain number) or "B" (bytes: the UI formats KB/MB/GB)
+};
+
+struct Activity {
+    std::vector<Metric> metrics;
+    std::vector<std::string> columns; // column keys; the UI translates "mon.col.<key>"
+    std::vector<std::vector<Value>> rows; // one row per session / operation
+    int id_col = -1;      // column holding the identifier kill_session() needs
+    int blocked_col = -1; // column listing the ids this session waits for ("" = not blocked, "?" = blocked by an unknown session)
+    int query_col = -1;   // column holding the statement text (shown in full for the selected row)
 };
 
 // ---------------------------------------------------------------- connector contract
@@ -324,6 +345,11 @@ public:
     virtual void commit() { throw DbError(ErrKind::Unsupported, "transactions"); }
     virtual void rollback() { throw DbError(ErrKind::Unsupported, "transactions"); }
     virtual bool in_transaction() const { return false; }
+
+    // Live monitoring. Uses its own connection so a long query on the main one never blocks the monitor.
+    virtual Activity activity() { throw DbError(ErrKind::Unsupported, "activity monitor"); }
+    // Terminates a session (id as listed in Activity::id_col). Refuses Db Pro's own sessions and read-only profiles.
+    virtual void kill_session(const std::string &) { throw DbError(ErrKind::Unsupported, "kill session"); }
 };
 
 } // namespace dbp

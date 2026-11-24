@@ -8,6 +8,8 @@
 #include <charconv>
 #include <chrono>
 #include <cstdlib>
+#include <map>
+#include <set>
 
 #include "../core/sqlgen.h"
 
@@ -324,6 +326,8 @@ public:
         c.schemas = false;
         c.sql = true;
         c.default_keyword = true;
+        c.activity = true;
+        c.kill_session = !p_.read_only;
         return c;
     }
 
@@ -336,11 +340,18 @@ public:
 
     void close() override
     {
-        std::lock_guard<std::mutex> g(m_);
-        closed_ = true;
-        if (my_) {
-            mysql_close(my_);
-            my_ = nullptr;
+        {
+            std::lock_guard<std::mutex> g(m_);
+            closed_ = true;
+            if (my_) {
+                mysql_close(my_);
+                my_ = nullptr;
+            }
+        }
+        std::lock_guard<std::mutex> mg(mm_); // never held together with m_: activity() takes mm_ then m_
+        if (mon_) {
+            mysql_close(mon_);
+            mon_ = nullptr;
         }
     }
 
@@ -672,6 +683,89 @@ public:
     }
     bool in_transaction() const override { return in_tx_; }
 
+    Activity activity() override
+    {
+        std::lock_guard<std::mutex> g(mm_);
+        MYSQL *my = monitor();
+        Activity a;
+
+        std::map<std::string, double> st;
+        for (auto &r : mon_rows(my, "SHOW GLOBAL STATUS")) st[r[0]] = std::strtod(r[1].c_str(), nullptr);
+        double max_conn = 0;
+        for (auto &r : mon_rows(my, "SHOW GLOBAL VARIABLES LIKE 'max_connections'")) max_conn = std::strtod(r[1].c_str(), nullptr);
+
+        // Who waits for whom. MariaDB / MySQL 5.7 expose INNODB_LOCK_WAITS, MySQL 8 performance_schema.data_lock_waits.
+        std::map<std::string, std::set<std::string>> waits;
+        static const char *kWaitQueries[] = {
+            "SELECT r.trx_mysql_thread_id, b.trx_mysql_thread_id FROM information_schema.INNODB_LOCK_WAITS w "
+            "JOIN information_schema.INNODB_TRX r ON r.trx_id = w.requesting_trx_id JOIN information_schema.INNODB_TRX b ON b.trx_id = w.blocking_trx_id",
+            "SELECT rt.PROCESSLIST_ID, bt.PROCESSLIST_ID FROM performance_schema.data_lock_waits w "
+            "JOIN performance_schema.threads rt ON rt.THREAD_ID = w.REQUESTING_THREAD_ID JOIN performance_schema.threads bt ON bt.THREAD_ID = w.BLOCKING_THREAD_ID",
+        };
+        for (int tries = 0; tries < 2 && wait_variant_ != 99; ++tries) {
+            int v = wait_variant_ >= 0 ? wait_variant_ : tries;
+            try {
+                for (auto &r : mon_rows(my, kWaitQueries[v])) waits[r[0]].insert(r[1]);
+                wait_variant_ = v;
+                break;
+            } catch (const DbError &) {
+                if (wait_variant_ >= 0) break; // it worked before: a transient failure, keep the variant
+                if (tries == 1) wait_variant_ = 99; // neither view exists on this server: no blocking information
+            }
+        }
+
+        a.columns = { "id", "user", "host", "database", "command", "seconds", "state", "blocked_by", "query" };
+        a.id_col = 0;
+        a.blocked_col = 7;
+        a.query_col = 8;
+        unsigned long mine = mysql_thread_id(my);
+        unsigned long main_id;
+        {
+            std::lock_guard<std::mutex> mg(m_);
+            main_id = tid_;
+        }
+        double running = 0, total = 0;
+        for (auto &r : mon_rows(my, "SELECT ID, USER, HOST, IFNULL(DB, ''), COMMAND, TIME, IFNULL(STATE, ''), IFNULL(INFO, '') FROM information_schema.PROCESSLIST ORDER BY TIME DESC LIMIT 500")) {
+            unsigned long id = std::strtoul(r[0].c_str(), nullptr, 10);
+            if (id == mine || (main_id && id == main_id)) continue;
+            ++total;
+            if (r[4] != "Sleep" && r[4] != "Daemon" && r[4] != "Binlog Dump") ++running;
+            std::string by;
+            auto w = waits.find(r[0]);
+            if (w != waits.end())
+                for (auto &b : w->second) by += (by.empty() ? "" : ",") + b;
+            a.rows.push_back({ Value::text(r[0]), Value::text(r[1]), Value::text(r[2]), Value::text(r[3]), Value::text(r[4]), Value::text(r[5]), Value::text(r[6]), Value::text(by),
+                               Value::text(r[7]) });
+        }
+        a.metrics = { { "sessions", "Sessions", total, false, "" },
+                      { "active", "Running", running, false, "" },
+                      { "blocked", "Blocked", (double)waits.size(), false, "" },
+                      { "max_sessions", "Max sessions", max_conn, false, "" },
+                      { "queries", "Statements", st["Questions"], true, "" },
+                      { "rows_read", "Rows read (InnoDB)", st["Innodb_rows_read"], true, "" },
+                      { "rows_written", "Rows written (InnoDB)", st["Innodb_rows_inserted"] + st["Innodb_rows_updated"] + st["Innodb_rows_deleted"], true, "" },
+                      { "net_in", "Network in", st["Bytes_received"], true, "B" },
+                      { "net_out", "Network out", st["Bytes_sent"], true, "B" },
+                      { "slow", "Slow queries (total)", st["Slow_queries"], false, "" },
+                      { "row_lock_waits", "InnoDB row lock waits now", st["Innodb_row_lock_current_waits"], false, "" } };
+        return a;
+    }
+
+    void kill_session(const std::string &id) override
+    {
+        if (p_.read_only) throw DbError(ErrKind::ReadOnly, "Connection is read-only");
+        if (id.empty() || id.size() > 18 || !std::all_of(id.begin(), id.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) throw DbError(ErrKind::Validation, "invalid session id");
+        unsigned long n = std::strtoul(id.c_str(), nullptr, 10);
+        {
+            std::lock_guard<std::mutex> g(m_);
+            if (n == tid_) throw DbError(ErrKind::Validation, "this is Db Pro's own session");
+        }
+        std::lock_guard<std::mutex> g(mm_);
+        MYSQL *my = monitor();
+        if (n == mysql_thread_id(my)) throw DbError(ErrKind::Validation, "this is Db Pro's own session");
+        run_simple(my, ("KILL " + std::to_string(n)).c_str());
+    }
+
 private:
     struct Abandon {
         MySqlConn *c;
@@ -750,11 +844,47 @@ private:
         return v;
     }
 
+    // Called with mm_ held. A connection of its own, so a long query on the main one never delays the monitor.
+    MYSQL *monitor()
+    {
+        if (closed_) throw DbError(ErrKind::Connection, "connection closed");
+        if (mon_ && mysql_ping(mon_) == 0) return mon_;
+        if (mon_) {
+            mysql_close(mon_);
+            mon_ = nullptr;
+        }
+        MYSQL *my = open_raw(p_);
+        try {
+            run_simple(my, "SET SESSION max_statement_time = 8"); // MariaDB; ignored below when unknown
+        } catch (const DbError &) {
+        }
+        mon_ = my;
+        return mon_;
+    }
+
+    static std::vector<std::vector<std::string>> mon_rows(MYSQL *my, const std::string &sql)
+    {
+        if (mysql_real_query(my, sql.c_str(), (unsigned long)sql.size())) throw_conn(my);
+        MYSQL_RES *res = mysql_store_result(my);
+        if (!res) throw_conn(my);
+        std::vector<std::vector<std::string>> out;
+        unsigned n = mysql_num_fields(res);
+        while (MYSQL_ROW r = mysql_fetch_row(res)) {
+            unsigned long *len = mysql_fetch_lengths(res);
+            std::vector<std::string> row;
+            for (unsigned k = 0; k < n; ++k) row.push_back(r[k] ? std::string(r[k], len[k]) : std::string());
+            out.push_back(std::move(row));
+        }
+        mysql_free_result(res);
+        return out;
+    }
+
     MySqlParams p_;
-    MYSQL *my_ = nullptr;
+    MYSQL *my_ = nullptr, *mon_ = nullptr;
     unsigned long tid_ = 0;
+    int wait_variant_ = -1; // which lock-wait view this server has: 0, 1, or 99 = none
     bool broken_ = false, closed_ = false, in_tx_ = false;
-    std::mutex m_;
+    std::mutex m_, mm_;
 };
 
 } // namespace

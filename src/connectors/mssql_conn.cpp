@@ -405,6 +405,8 @@ public:
         c.schemas = true;
         c.sql = true;
         c.default_keyword = true;
+        c.activity = true; // untested against a real server (needs VIEW SERVER STATE)
+        c.kill_session = !p_.read_only;
         return c;
     }
 
@@ -421,9 +423,13 @@ public:
 
     void close() override
     {
-        std::lock_guard<std::mutex> g(m_);
-        closed_ = true;
-        drop();
+        {
+            std::lock_guard<std::mutex> g(m_);
+            closed_ = true;
+            drop();
+        }
+        std::lock_guard<std::mutex> mg(mm_); // never held together with m_
+        mon_.reset();
     }
 
     std::vector<ObjectInfo> list_databases() override
@@ -745,7 +751,77 @@ public:
     }
     bool in_transaction() const override { return in_tx_; }
 
+    Activity activity() override
+    {
+        std::lock_guard<std::mutex> g(mm_);
+        MsConn &mon = monitor();
+        Activity a;
+        auto counters = mon.query_values(
+            "SELECT (SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE is_user_process = 1), "
+            "(SELECT COUNT(*) FROM sys.dm_exec_requests r JOIN sys.dm_exec_sessions s ON s.session_id = r.session_id WHERE s.is_user_process = 1 AND r.session_id <> @@SPID), "
+            "(SELECT COUNT(DISTINCT session_id) FROM sys.dm_exec_requests WHERE blocking_session_id > 0), "
+            "CAST(@@MAX_CONNECTIONS AS bigint), "
+            "(SELECT ISNULL(SUM(cntr_value), 0) FROM sys.dm_os_performance_counters WHERE counter_name LIKE 'Batch Requests/sec%'), "
+            "(SELECT ISNULL(SUM(cntr_value), 0) FROM sys.dm_os_performance_counters WHERE counter_name LIKE 'SQL Compilations/sec%'), "
+            "(SELECT ISNULL(SUM(cntr_value), 0) FROM sys.dm_os_performance_counters WHERE counter_name LIKE 'Transactions/sec%' AND instance_name = '_Total'), "
+            "(SELECT ISNULL(SUM(cntr_value), 0) FROM sys.dm_os_performance_counters WHERE counter_name LIKE 'Number of Deadlocks/sec%' AND instance_name = '_Total'), "
+            "(SELECT ISNULL(MAX(cntr_value), 0) FROM sys.dm_os_performance_counters WHERE counter_name LIKE 'Page life expectancy%' AND object_name LIKE '%Buffer Manager%')",
+            {}, 9);
+        auto n = [&](size_t i) { return counters.empty() ? 0.0 : std::strtod(str(counters[0][i]).c_str(), nullptr); };
+        a.metrics = { { "sessions", "Sessions", n(0), false, "" },
+                      { "active", "Running", n(1), false, "" },
+                      { "blocked", "Blocked", n(2), false, "" },
+                      { "max_sessions", "Max sessions", n(3), false, "" },
+                      { "batches", "Batch requests", n(4), true, "" },
+                      { "compilations", "SQL compilations", n(5), true, "" },
+                      { "tps", "Transactions", n(6), true, "" },
+                      { "deadlocks", "Deadlocks (total)", n(7), false, "" },
+                      { "ple", "Page life expectancy (s)", n(8), false, "" } };
+        a.columns = { "id", "user", "host", "database", "state", "seconds", "wait", "blocked_by", "query" };
+        a.id_col = 0;
+        a.blocked_col = 7;
+        a.query_col = 8;
+        a.rows = mon.query_values(
+            "SELECT TOP 500 CAST(s.session_id AS varchar(10)), ISNULL(s.login_name, ''), ISNULL(s.host_name, ''), ISNULL(DB_NAME(r.database_id), ''), ISNULL(r.status, s.status), "
+            "CAST(DATEDIFF(SECOND, ISNULL(r.start_time, s.last_request_start_time), GETDATE()) AS varchar(20)), ISNULL(r.wait_type, ''), "
+            "ISNULL(CAST(NULLIF(r.blocking_session_id, 0) AS varchar(10)), ''), ISNULL(t.text, '') "
+            "FROM sys.dm_exec_sessions s LEFT JOIN sys.dm_exec_requests r ON r.session_id = s.session_id OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) t "
+            "WHERE s.is_user_process = 1 AND s.session_id <> @@SPID "
+            "ORDER BY (CASE WHEN r.blocking_session_id > 0 THEN 0 ELSE 1 END), (CASE WHEN r.status = 'running' THEN 0 ELSE 1 END), s.session_id",
+            {}, 9);
+        return a;
+    }
+
+    void kill_session(const std::string &id) override
+    {
+        if (p_.read_only) throw DbError(ErrKind::ReadOnly, "Connection is read-only");
+        if (id.empty() || id.size() > 5 || !std::all_of(id.begin(), id.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) throw DbError(ErrKind::Validation, "invalid session id");
+        auto mine = query_values("SELECT CAST(@@SPID AS varchar(10))", {}, 1);
+        if (!mine.empty() && str(mine[0][0]) == id) throw DbError(ErrKind::Validation, "this is Db Pro's own session");
+        std::lock_guard<std::mutex> g(mm_);
+        MsConn &mon = monitor();
+        auto own = mon.query_values("SELECT CAST(@@SPID AS varchar(10))", {}, 1);
+        if (!own.empty() && str(own[0][0]) == id) throw DbError(ErrKind::Validation, "this is Db Pro's own session");
+        mon.run_only("KILL " + id);
+    }
+
 private:
+    // Called with mm_ held. A second connection of its own, so a long query on the main one never delays the monitor.
+    MsConn &monitor()
+    {
+        if (closed_) throw DbError(ErrKind::Connection, "connection closed");
+        if (!mon_) mon_ = std::make_unique<MsConn>(p_);
+        return *mon_;
+    }
+
+    void run_only(const std::string &sql)
+    {
+        std::lock_guard<std::mutex> g(m_);
+        ensure();
+        Stmt s(dbc_);
+        guarded([&] { s.run(sql, {}); });
+    }
+
     // A failure that kills the connection (08xxx) leaves it unusable: reopen on the next call.
     template <class F> void guarded(F &&f)
     {
@@ -880,7 +956,8 @@ private:
     SQLHENV env_ = nullptr;
     SQLHDBC dbc_ = nullptr;
     bool broken_ = false, closed_ = false, in_tx_ = false;
-    std::mutex m_;
+    std::mutex m_, mm_;
+    std::unique_ptr<MsConn> mon_;
 };
 
 } // namespace

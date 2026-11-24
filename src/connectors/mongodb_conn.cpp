@@ -551,7 +551,89 @@ public:
         c.documents = true;
         c.sql = false;
         c.regex = true;
+        c.activity = true;
+        c.kill_session = !p_.read_only;
         return c;
+    }
+
+    Activity activity() override
+    {
+        return guard([&] {
+            auto c = pool().acquire();
+            auto admin = (*c)["admin"];
+            Activity a;
+            auto st = admin.run_command(make_document(kvp("serverStatus", 1)));
+            auto sv = st.view();
+            auto num = [&](const char *a1, const char *b1) -> double {
+                auto e = sv[a1];
+                if (e && e.type() == type::k_document) e = e.get_document().value[b1];
+                if (!e) return 0;
+                switch (e.type()) {
+                case type::k_int32: return e.get_int32().value;
+                case type::k_int64: return (double)e.get_int64().value;
+                case type::k_double: return e.get_double().value;
+                default: return 0;
+                }
+            };
+            a.columns = { "id", "user", "database", "command", "seconds", "state", "host", "blocked_by", "query" };
+            a.id_col = 0;
+            a.blocked_col = 7;
+            a.query_col = 8;
+            bb::array pl;
+            pl.append(make_document(kvp("$currentOp", make_document(kvp("allUsers", true), kvp("idleConnections", false), kvp("idleSessions", false)))));
+            pl.append(make_document(kvp("$limit", 500)));
+            auto r = admin.run_command(make_document(kvp("aggregate", 1), kvp("pipeline", bt::b_array { pl.view() }), kvp("cursor", make_document()), kvp("comment", "dbpro-monitor")));
+            double running = 0, waiting = 0;
+            for (auto &op : r.view()["cursor"]["firstBatch"].get_array().value) {
+                auto cmd = op["command"];
+                if (cmd && cmd.type() == type::k_document) {
+                    auto cm = cmd.get_document().value["comment"];
+                    if (cm && cm.type() == type::k_string && std::string(cm.get_string().value) == "dbpro-monitor") continue;
+                }
+                bool wait = op["waitingForLock"] && op["waitingForLock"].type() == type::k_bool && op["waitingForLock"].get_bool().value;
+                ++running;
+                if (wait) ++waiting;
+                std::string ns = op["ns"] && op["ns"].type() == type::k_string ? std::string(op["ns"].get_string().value) : std::string();
+                std::string db = ns.substr(0, ns.find('.'));
+                std::string user;
+                auto eu = op["effectiveUsers"];
+                if (eu && eu.type() == type::k_array)
+                    for (auto &u : eu.get_array().value) {
+                        if (u.type() == type::k_document && u.get_document().value["user"]) user = std::string(u.get_document().value["user"].get_string().value);
+                        break;
+                    }
+                auto text = [&](const char *k) { auto e = op[k]; return (e && e.type() == type::k_string) ? std::string(e.get_string().value) : std::string(); };
+                std::string secs = op["secs_running"] ? to_value(op["secs_running"]).display() : std::string();
+                a.rows.push_back({ op["opid"] ? Value::text(to_value(op["opid"]).display()) : Value::text(""), Value::text(user), Value::text(db), Value::text(text("op") + (ns.empty() ? "" : " " + ns)),
+                                   Value::text(secs), Value::text(wait ? "waiting for lock" : "running"), Value::text(text("client")), Value::text(wait ? "?" : ""),
+                                   cmd ? Value::text(element_json(cmd)) : Value::text("") });
+            }
+            a.metrics = { { "sessions", "Sessions", num("connections", "current"), false, "" },
+                          { "active", "Running", running, false, "" },
+                          { "blocked", "Blocked", waiting, false, "" },
+                          { "max_sessions", "Max sessions", num("connections", "current") + num("connections", "available"), false, "" },
+                          { "ops_insert", "Inserts", num("opcounters", "insert"), true, "" },
+                          { "ops_query", "Queries", num("opcounters", "query"), true, "" },
+                          { "ops_update", "Updates", num("opcounters", "update"), true, "" },
+                          { "ops_delete", "Deletes", num("opcounters", "delete"), true, "" },
+                          { "ops_command", "Commands", num("opcounters", "command"), true, "" },
+                          { "net_in", "Network in", num("network", "bytesIn"), true, "B" },
+                          { "net_out", "Network out", num("network", "bytesOut"), true, "B" },
+                          { "queued", "Operations queued for locks", num("globalLock", "currentQueue") , false, "" } };
+            return a;
+        });
+    }
+
+    void kill_session(const std::string &id) override
+    {
+        if (p_.read_only) throw DbError(ErrKind::ReadOnly, "Connection is read-only");
+        if (id.empty() || id.size() > 18 || !std::all_of(id.begin(), id.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) throw DbError(ErrKind::Validation, "invalid operation id");
+        int64_t n = std::strtoll(id.c_str(), nullptr, 10);
+        guard([&] {
+            auto c = pool().acquire();
+            (*c)["admin"].run_command(make_document(kvp("killOp", 1), kvp("op", n > INT32_MAX ? bsoncxx::types::bson_value::value(n) : bsoncxx::types::bson_value::value((int32_t)n))));
+            return 0;
+        });
     }
 
     std::string server_info() override { return "MongoDB " + version_ + (clustered_ ? "" : " (standalone)"); }

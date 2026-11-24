@@ -6,7 +6,7 @@
 
 #include <cstddef>
 
-#define DBPRO_DRIVER_ABI 1
+#define DBPRO_DRIVER_ABI 2
 
 #ifdef _WIN32
 #define DBPRO_EXPORT extern "C" __declspec(dllexport)

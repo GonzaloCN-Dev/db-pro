@@ -45,3 +45,16 @@ export struct FieldUi {
     secret: bool,
     visible: bool,
 }
+
+export struct TabUi {
+    title: string,
+    active: bool,
+    dirty: bool,
+}
+
+export struct MetricUi {
+    label: string,
+    value: string,
+    spark: string,   // SVG path in a 100 x 24 box; empty until two samples exist
+    tone: int,       // 0 normal, 1 warning, 2 danger
+}

@@ -1,4 +1,4 @@
-import { ColumnUi, RowUi, TreeRowUi } from "types.slint";
+import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi } from "types.slint";
 
 // Everything the UI shows or asks for goes through this global; src/app.cpp implements it.
 export global Backend {
@@ -10,7 +10,7 @@ export global Backend {
     in property <bool> dark: true;
 
     // ---- window / chrome
-    in-out property <int> view: 0;            // 0 data, 1 SQL
+    in-out property <int> view: 0;            // 0 data, 1 SQL, 2 monitor
     in property <string> status: "";
     in property <string> status-right: "";
     in property <bool> busy: false;
@@ -22,6 +22,53 @@ export global Backend {
     callback toggle-theme();
     callback toggle-language();
     callback about();
+    in property <bool> update-badge: false;   // a newer release was found
+    callback open-settings();
+    callback view-changed(int);
+
+    // ---- table tabs
+    in property <[TabUi]> tabs;
+    callback tab-clicked(int);
+    callback tab-close(int);
+
+    // ---- settings and updates
+    in-out property <bool> settings-open: false;
+    in property <string> app-version: "";
+    in property <int> theme-index: 0;                 // 0 dark, 1 light
+    in property <int> lang-index: 0;                  // 0 Spanish, 1 English
+    in-out property <bool> auto-update: false;
+    in property <int> monitor-interval-index: 2;
+    in property <int> upd-state: 0;                   // 0 idle, 1 checking, 2 up to date, 3 available, 4 downloading, 5 starting installer, 6 error
+    in property <string> upd-text: "";
+    in property <string> upd-notes: "";
+    in property <float> upd-progress: 0;
+    callback settings-theme(int);
+    callback settings-lang(int);
+    callback settings-auto-update(bool);
+    callback settings-monitor-interval(int);
+    callback check-updates();
+    callback start-update();
+    callback open-data-dir();
+    callback open-drivers-dir();
+
+    // ---- live monitor
+    in property <bool> mon-supported: false;
+    in property <bool> mon-paused: false;
+    in property <bool> mon-loading: false;
+    in property <string> mon-error: "";
+    in property <string> mon-updated: "";
+    in property <string> mon-summary: "";
+    in property <[MetricUi]> mon-metrics;
+    in property <[ColumnUi]> mon-columns;
+    in property <[RowUi]> mon-rows;
+    in property <length> mon-content-width: 0px;
+    in-out property <int> mon-sel: -1;
+    in property <string> mon-query: "";
+    in property <bool> mon-can-kill: false;
+    callback mon-select(int);
+    callback mon-kill();
+    callback mon-toggle-pause();
+    callback mon-refresh();
 
     // ---- explorer
     in property <[TreeRowUi]> tree;

@@ -30,6 +30,9 @@ struct Settings {
     std::string lang = "en";
     int page_size = 100;
     std::string last_export_dir;
+    bool auto_update = false;       // opt-in: look for a new release at startup (at most once a day)
+    long long last_update_check = 0; // unix seconds
+    int monitor_interval = 5;       // seconds between activity refreshes
 };
 
 class Store {

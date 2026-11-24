@@ -40,3 +40,9 @@ The owner asked for ~230 engines (SQL, NoSQL, key-value, graph, embedded, analyt
 - Non-tabular families (key-value, graph, search, time series) are shown in the data grid, read-only first. Editing is added only where it is safe and tested.
 - Phases: 0.2.0 = route A presets + first route B drivers that can be tested locally. 0.3.0 = generic ODBC driver + dialects. Later = graph, time series, cloud-only services. Each phase is published with honest per-engine status.
 - ODBC vendor drivers are the user's to install (often licensed, not redistributable).
+
+## D-008 — Optional updater, table tabs and live activity
+- Update checks are opt-in at startup (maximum once per day), or user-triggered in Settings. The updater contacts only the project's GitHub Releases API over validated HTTPS; it refuses releases without a verified SHA-256, checks the downloaded installer before launch and starts the existing Inno Setup installer silently with relaunch requested. A user-triggered update is blocked while any table tab has pending changes.
+- Table tabs are per-connection, in-memory snapshots managed by the Controller. The active table uses the existing single working state; inactive tabs retain their page, filters, sort, column widths, selection and pending ChangeSet. SQL editor state is intentionally not tabbed. Closing a dirty tab uses the existing save/discard guard. Disconnect clears all tabs.
+- The performance view is capability-driven and polls only while visible, on a worker thread, through each supported connector's separate monitor connection. Unsupported engines show an explicit empty state. Cumulative counters are rendered as rates between samples; killing a session is opt-in per connector, hidden for unsupported/read-only connections, and requires confirmation.
+- Settings persist the theme, language, opt-in update preference, last check time and monitor refresh interval. No telemetry or database information is sent by update checks.
