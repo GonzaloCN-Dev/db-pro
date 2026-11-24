@@ -28,5 +28,6 @@ std::optional<std::string> open_dialog(const std::string &title, const std::vect
 // Opens a folder/file in Explorer.
 void reveal_in_explorer(const std::string &path);
 void open_folder(const std::string &dir); // opens the folder in Explorer (created when missing)
+void open_url(const std::string &url); // opens a trusted, application-owned HTTPS URL
 
 } // namespace dbp::platform

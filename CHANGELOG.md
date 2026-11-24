@@ -1,12 +1,20 @@
 ﻿# Changelog
 
+## 0.2.1
+- Evita destruir el controlador mientras quedan tareas de conectores en curso al cerrar la aplicación; la salida espera a que terminen.
+- Diagnóstico local de cierres: código de excepción, módulo y fase, sin SQL, nombres de servidor ni credenciales; acceso a los registros desde Ajustes.
+- Diálogo «Acerca de» con copyright y enlace al repositorio.
+- Preferencia persistente de filas por página.
+- Guardado/descartado explícito de cambios pendientes al cerrar pestañas o cambiar de conexión.
+- 71 tests unitarios pasan. El cierre reportado con SQL Server remoto no se ha podido reproducir ni atribuir a una causa concreta.
+
 ## 0.2.0
 - Ajustes persistentes para tema, idioma, actualizaciones opcionales e intervalo del monitor.
 - Comprobación y descarga de actualizaciones desde GitHub Releases; verificación SHA-256 e instalación silenciosa con relanzamiento.
 - Varias tablas en pestañas, con filtros, orden, página y cambios pendientes independientes.
 - Vista de rendimiento en vivo para PostgreSQL, MySQL/MariaDB, MongoDB y SQL Server; muestra las capacidades disponibles y requiere confirmación para terminar sesiones.
 - Driver DuckDB probado contra DuckDB 1.5.6 (88 comprobaciones).
-- Suite: 67 tests unitarios. Las funciones nuevas de monitor y actualización aún no se han probado end-to-end contra servidores reales ni con una actualización publicada.
+- Suite 0.2.0: 67 tests unitarios. Las funciones nuevas de monitor y actualización aún no se han probado end-to-end contra servidores reales ni con una actualización publicada.
 
 ## 0.1.0
 - Núcleo, interfaz Slint, cuadrícula de datos editable con filtros y ordenación en servidor, exportación en streaming.

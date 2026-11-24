@@ -102,6 +102,8 @@ TEST(store_roundtrip_never_writes_passwords)
     fs::path dir = tmp("store");
     std::error_code ec; fs::remove_all(dir, ec);
     Store s(dir.string());
+    s.settings.page_size = 250;
+    s.settings.monitor_interval = 10;
     Profile p; p.id = Store::new_id(); p.name = "Prod"; p.engine = "postgres"; p.host = "h"; p.port = 5432; p.user = "u"; p.env = 3;
     s.upsert(p);
     CHECK(s.save());
@@ -111,6 +113,8 @@ TEST(store_roundtrip_never_writes_passwords)
     CHECK_EQ(s2.profiles[0].env, 3);
     CHECK(s2.profiles[0].tls); // TLS validation defaults on, trust-cert defaults off
     CHECK(!s2.profiles[0].trust_server_cert);
+    CHECK_EQ(s2.settings.page_size, 250);
+    CHECK_EQ(s2.settings.monitor_interval, 10);
     std::string all = slurp(dir / "connections.json") + slurp(dir / "settings.json");
     CHECK(all.find("password") == std::string::npos);
     CHECK(s2.export_profiles_json().find("password") == std::string::npos);

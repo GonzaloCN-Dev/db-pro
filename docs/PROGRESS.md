@@ -19,8 +19,12 @@
 | Instalador (Inno Setup, como Rclone Lite) | `installer\build-installer.ps1` genera `dist\DbPro-Setup-0.1.0.exe` (9,7 MB). Probado: instalación silenciosa en carpeta temporal, archivos y registro correctos, la app instalada arranca y detecta el driver de `drivers\` sin descargar, desinstalación limpia (carpeta, registro y acceso directo). No probado: instalación en el Program Files con permisos de administrador, ni actualizar sobre una versión anterior |
 | Ajustes, pestañas y vista de rendimiento | Compilación MSVC correcta. Autotest visual en 1360×800: preferencias, selector de idioma/tema/intervalo, dos tablas SQLite abiertas en pestañas y cambio de vista. SQLite muestra correctamente el estado de monitoreo no soportado. |
 | Updater | Compilación y 3 tests unitarios (comparación de versiones, validación de release/checksum/URL, vector SHA-256). El flujo real de descarga, instalación y relanzamiento no se ha ejecutado. |
-| Suite | `build\dbpro_tests.exe`: **67 tests, 0 fallidos**. |
+| Suite | `build\dbpro_tests.exe`: **71 tests, 0 fallidos**. |
+| Diagnóstico de cierres | Formateo privacy-safe, fase thread-local y sanitización del nombre de módulo cubiertos por tests. Reproducción visual en SQLite temporal: conectar y abrir tabla sin cierre. El cierre remoto SQL Server reportado no se pudo reproducir; no se considera resuelto. |
+| Acerca de y ajustes | Autotest visual: copyright, versión, enlace al repo, controles de tamaño de página, idioma, tema e intervalo visibles; ajuste de filas persistido en store. |
+| Pestañas | Guardar/descartar explícito en cierre de pestaña y operación que abandona todas las tablas; build y suite pasan. Falta cobertura UI específica de los flujos sucios. |
 | Artefactos 0.2.0 | Build MSVC, instalador Inno Setup y paquete de 5 drivers con `drivers.json` generados; checksum SHA-256 del instalador. Instalación silenciosa y actualización end-to-end aún no verificadas. |
+| Instalador 0.2.1 | Instalación silenciosa `/VERYSILENT` en directorio temporal: exit code 0, archivos completos y app instalada abre una tabla SQLite temporal y cierra con exit code 0. Actualización sobre instalación previa sigue sin probar. |
 
 ## Cómo se prueba la interfaz
 `DBPRO_SELFTEST=<script>` activa `src/selftest.cpp`: inyecta clics/teclas en la ventana de Slint y guarda capturas de esa ventana (`shot`). No toca el escritorio real. Variables: `DBPRO_SELFTEST_OUT`, `DBPRO_SELFTEST_EXPORT` (ruta sin extensión, evita el diálogo nativo), `DBPRO_DATA_DIR` (perfiles aislados / modo portable).
@@ -33,6 +37,7 @@
 - Instalador y versión portable.
 - Monitor en vivo y finalización de sesiones contra un servidor PostgreSQL, MongoDB o SQL Server real. El estado no soportado de SQLite sí se verificó visualmente.
 - Descarga de una release y actualización/relanzamiento con el instalador en una instalación separada.
+- La finalización real de tareas de drivers al cerrar se espera sin límite para evitar UAF; un conector bloqueado podría retrasar la salida. Se debe validar y mejorar con cancelación/timeouts por driver.
 
 ## Motores
 | Motor | Estado |

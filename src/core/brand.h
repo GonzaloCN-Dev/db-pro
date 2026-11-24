@@ -7,6 +7,7 @@ inline constexpr const char *kName = "Db Pro";
 inline constexpr const char *kTagline = "Connect. Query. Explore.";
 inline constexpr const char *kAuthor = "Gonzalo Cruz Núñez";
 inline constexpr const char *kCopyright = "Copyright © 2026 Gonzalo Cruz Núñez";
+inline constexpr const char *kRepositoryUrl = "https://github.com/GonzaloCN-Dev";
 inline constexpr const char *kDescription = "Native universal database studio";
 inline constexpr const char *kDataDir = "DbPro";          // %APPDATA%\DbPro
 inline constexpr const char *kCredentialPrefix = "DbPro/"; // Windows Credential Manager target prefix

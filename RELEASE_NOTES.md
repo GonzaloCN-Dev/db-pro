@@ -1,3 +1,28 @@
+# Db Pro 0.2.1
+
+Versión de mantenimiento centrada en estabilidad, diagnóstico local y atribución del producto.
+
+## Cambios
+
+- Se evita liberar el controlador mientras las tareas de conectores siguen activas al cerrar. Si un driver se queda bloqueado, la salida puede demorarse; los tiempos de cancelación deben validarse por driver.
+- Registro local de cierres con código de excepción, módulo y fase. No guarda SQL, datos, nombre del servidor ni credenciales. Se abre desde Ajustes → Registros de cierres.
+- «Acerca de» muestra **© 2026 Gonzalo Cruz Núñez**, la versión y un enlace a `https://github.com/GonzaloCN-Dev`.
+- Ajuste persistente del tamaño de página (50–1000 filas).
+- Guardar o descartar cambios pendientes se ofrece explícitamente al cerrar pestañas o abandonar una conexión.
+- Build MSVC y 71 tests unitarios pasan. La reproducción de apertura en SQLite temporal no cerró la app.
+
+## Límite de diagnóstico
+
+El cierre reportado al abrir una tabla de SQL Server remoto no se pudo reproducir en el entorno disponible y no se considera resuelto. El conector SQL Server sigue sin integración probada contra un servidor real. Si vuelve a ocurrir, comparte el archivo `crashes.log` de la carpeta de datos (sin datos de conexión).
+
+## Instalación
+
+Descarga `DbPro-Setup-0.2.1.exe`. El instalador no está firmado; SmartScreen puede mostrar un aviso de editor desconocido.
+
+Código y artefactos: https://github.com/GonzaloCN-Dev/db-pro/releases/tag/v0.2.1
+
+---
+
 # Db Pro 0.2.0
 
 Segunda versión de desarrollo: ajustes, pestañas para tablas, monitor de actividad en vivo y actualizaciones opcionales.

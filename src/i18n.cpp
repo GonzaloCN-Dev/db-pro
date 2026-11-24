@@ -180,6 +180,8 @@ const Entry kTable[] = {
     // about
     { "about.title", "About Db Pro", "Acerca de Db Pro" },
     { "about.text", "Version {0}\n{1}\n\nNo telemetry. Passwords stay in Windows Credential Manager.\n\nMade with Slint (slint.dev)", "Versión {0}\n{1}\n\nSin telemetría. Las contraseñas permanecen en el Administrador de credenciales.\n\nHecho con Slint (slint.dev)" },
+    { "about.description", "Native database studio. Connect. Query. Explore.", "Estudio nativo de bases de datos. Conecta. Consulta. Explora." },
+    { "about.privacy", "No telemetry. Passwords stay in Windows Credential Manager.", "Sin telemetría. Las contraseñas permanecen en el Administrador de credenciales." },
 
     // settings and updates
     { "settings.title", "Settings", "Ajustes" },
@@ -188,6 +190,7 @@ const Entry kTable[] = {
     { "settings.light", "Light", "Claro" },
     { "settings.language", "Language", "Idioma" },
     { "settings.monitor-interval", "Performance refresh interval", "Intervalo de actualización del rendimiento" },
+    { "settings.page-size", "Rows per page", "Filas por página" },
     { "settings.updates", "UPDATES", "ACTUALIZACIONES" },
     { "settings.version", "Version", "Versión" },
     { "settings.auto-update", "Check for updates when Db Pro starts (at most once a day)", "Buscar actualizaciones al iniciar Db Pro (como máximo una vez al día)" },
@@ -197,6 +200,8 @@ const Entry kTable[] = {
     { "settings.folders", "Folders", "Carpetas" },
     { "settings.data-dir", "Data folder", "Carpeta de datos" },
     { "settings.drivers-dir", "Drivers folder", "Carpeta de drivers" },
+    { "settings.crash-logs", "Crash logs", "Registros de cierres" },
+    { "settings.crash-logs-note", "Crash logs contain only the fault code, module and operation phase—not SQL, server names or credentials.", "Los registros solo contienen el código del fallo, el módulo y la fase de la operación; no incluyen SQL, servidores ni credenciales." },
     { "upd.checking", "Checking for updates…", "Buscando actualizaciones…" },
     { "upd.up-to-date", "You are up to date (version {0}).", "Estás al día (versión {0})." },
     { "upd.available", "Version {0} is available.", "Hay una versión nueva: {0}." },

@@ -165,4 +165,11 @@ void open_folder(const std::string &dir)
     ShellExecuteW(nullptr, L"open", widen(dir).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
+void open_url(const std::string &url)
+{
+    if (url.rfind("https://github.com/GonzaloCN-Dev", 0) != 0) return;
+    std::wstring w = widen(url);
+    ShellExecuteW(nullptr, L"open", w.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
 } // namespace dbp::platform

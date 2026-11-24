@@ -2,10 +2,13 @@
 
 #include <cstdlib>
 
+#include "diagnostics.h"
+
 int run_app();
 
 int main()
 {
+    dbp::diagnostics::install_crash_handler();
     // One window per user session: a second launch just brings the first one forward.
     HANDLE mutex = CreateMutexW(nullptr, FALSE, L"Local\\DbPro.SingleInstance");
     if (mutex && GetLastError() == ERROR_ALREADY_EXISTS) {

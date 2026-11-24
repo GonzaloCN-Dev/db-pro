@@ -22,6 +22,7 @@
 #include "core/exporter.h"
 #include "core/filtertext.h"
 #include "core/sqlsafety.h"
+#include "diagnostics.h"
 #include "drivers/driver_manager.h"
 #include "i18n.h"
 #include "platform.h"
@@ -232,7 +233,7 @@ public:
         B().set_status_right(S(std::string(brand::kName) + " " + brand::kVersion));
     }
 
-    ~Controller() { *alive_ = false; }
+    ~Controller() { alive_->store(false, std::memory_order_release); }
 
     int run()
     {
@@ -255,13 +256,13 @@ private:
     template <class F> void post(F f)
     {
         slint::invoke_from_event_loop([alive = alive_, f = std::move(f)]() mutable {
-            if (*alive) f();
+            if (alive->load(std::memory_order_acquire)) f();
         });
     }
     template <class F> void spawn(F f)
     {
         ++workers_;
-        std::thread([this, alive = alive_, f = std::move(f)]() mutable {
+        std::thread([this, f = std::move(f)]() mutable {
             try {
                 f();
             } catch (...) {
@@ -278,8 +279,9 @@ private:
         if (sql_cancel_) sql_cancel_->cancel();
         if (exp_cancel_) exp_cancel_->cancel();
         stop_monitor();
-        auto until = Clock::now() + std::chrono::seconds(2);
-        while (workers_ > 0 && Clock::now() < until) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        // Detached tasks capture this Controller. Do not destroy it while a connector call
+        // may still be using it; cancellation is best-effort for drivers that block in I/O.
+        while (workers_ > 0) std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
     void set_status(const std::string &s) { B().set_status(S(s)); }
@@ -332,10 +334,26 @@ private:
             store_.save();
             if (monitor_active()) start_monitor();
         });
+        b.on_settings_page_size([this](int i) {
+            const int size = kPageSizes[std::clamp(i, 0, 4)];
+            guard([this, size] {
+                page_size_ = size;
+                store_.settings.page_size = page_size_;
+                B().set_page_size_index(page_size_index());
+                B().set_settings_page_size_index(page_size_index());
+                store_.save();
+                if (table_open_) {
+                    req_.limit = (uint32_t)page_size_;
+                    req_.offset = 0;
+                    load_page(false);
+                }
+            });
+        });
         b.on_check_updates([this] { check_updates(false); });
         b.on_start_update([this] { start_update(); });
         b.on_open_data_dir([this] { platform::open_folder(platform::data_dir()); });
         b.on_open_drivers_dir([this] { platform::open_folder(drivers::user_drivers_dir()); });
+        b.on_open_logs_dir([this] { platform::open_folder(platform::data_dir() + "\\logs"); });
 
         // tabs and monitor
         b.on_tab_clicked([this](int i) { switch_tab(i); });
@@ -350,8 +368,12 @@ private:
         });
         b.on_mon_refresh([this] { poll_monitor(true); });
         b.on_about([this] {
-            notify(tr("about.title"), trf("about.text", { brand::kVersion, brand::kCopyright }));
+            B().set_about_version(S(brand::kVersion));
+            B().set_about_copyright(S(brand::kCopyright));
+            B().set_about_repository(S(brand::kRepositoryUrl));
+            B().set_about_open(true);
         });
+        b.on_open_repository([] { platform::open_url(brand::kRepositoryUrl); });
 
         // explorer
         b.on_tree_filter_changed([this] { rebuild_tree(); });
@@ -925,9 +947,31 @@ private:
         size_t n = changes_.empty() ? 0 : changes_.affected_rows();
         for (size_t i = 0; i < tabs_.size(); ++i)
             if ((int)i != active_tab_) n += tabs_[i].changes.affected_rows();
-        confirm(tr("unsaved.title"), trf("unsaved.text", { std::to_string(n) }), "", tr("unsaved.discard"), "", true, false, [proceed](int r) {
-            if (r == 1) proceed();
+        confirm(tr("unsaved.title"), trf("unsaved.text", { std::to_string(n) }), "", tr("save"), tr("unsaved.discard"), true, false, [this, proceed](int r) {
+            if (r == 1) save_all_dirty_tabs(proceed);
+            else if (r == 2) {
+                changes_.clear();
+                for (auto &t : tabs_) t.changes.clear();
+                update_pending();
+                update_tabs_ui();
+                proceed();
+            }
         });
+    }
+
+    void save_all_dirty_tabs(std::function<void()> proceed)
+    {
+        if (!changes_.empty()) {
+            start_save([this, proceed] { save_all_dirty_tabs(proceed); });
+            return;
+        }
+        for (size_t i = 0; i < tabs_.size(); ++i) {
+            if ((int)i == active_tab_ || tabs_[i].changes.empty()) continue;
+            switch_tab((int)i);
+            start_save([this, proceed] { save_all_dirty_tabs(proceed); });
+            return;
+        }
+        proceed();
     }
 
     void discard_changes()
@@ -1054,8 +1098,15 @@ private:
         if (i == active_tab_) {
             guard([this, i] { if (i < (int)tabs_.size()) remove_tab(i); });
         } else {
-            confirm(tr("unsaved.title"), trf("unsaved.text", { std::to_string(tabs_[i].changes.affected_rows()) }), "", tr("unsaved.discard"), "", true, false, [this, i](int r) {
-                if (r == 1 && i < (int)tabs_.size()) remove_tab(i);
+            confirm(tr("unsaved.title"), trf("unsaved.text", { std::to_string(tabs_[i].changes.affected_rows()) }), "", tr("save"), tr("unsaved.discard"), true, false, [this, i](int r) {
+                if (r == 2 && i < (int)tabs_.size()) remove_tab(i);
+                else if (r == 1 && i < (int)tabs_.size()) {
+                    guard([this, i] {
+                        if (i >= (int)tabs_.size()) return;
+                        switch_tab(i);
+                        start_save([this, i] { if (i < (int)tabs_.size()) remove_tab(i); });
+                    });
+                }
             });
         }
     }
@@ -1136,10 +1187,12 @@ private:
             set_status(tr("loading"));
             auto c = conn_;
             spawn([this, c, ref, cg, fg] {
+                diagnostics::set_phase(diagnostics::Phase::LoadingTableMetadata);
                 try {
                     TableMeta m = c->table_meta(ref);
                     post([this, cg, fg, ref, m = std::move(m)]() mutable {
                         if (cg != conn_gen_ || fg != fetch_gen_) return;
+                        diagnostics::set_phase(diagnostics::Phase::LoadingTableMetadata);
                         if (active_tab_ >= 0) save_tab(active_tab_);
                         tabs_.emplace_back();
                         active_tab_ = (int)tabs_.size() - 1;
@@ -1170,11 +1223,13 @@ private:
                         update_pending();
                         rebuild_tree();
                         load_page(false, true);
+                        diagnostics::set_phase(diagnostics::Phase::Idle);
                     });
                 } catch (const std::exception &e) {
                     std::string m = e.what();
                     post([this, cg, fg, m] {
                         if (cg != conn_gen_ || fg != fetch_gen_) return;
+                        diagnostics::set_phase(diagnostics::Phase::Idle);
                         loading_ = false;
                         B().set_loading(false);
                         set_busy();
@@ -1237,14 +1292,20 @@ private:
         B().set_loading(true);
         set_busy();
         spawn([this, c, meta = std::move(meta), req = std::move(req), tok, fg] {
+            diagnostics::set_phase(diagnostics::Phase::FetchingPage);
             try {
                 Page p = c->fetch_page(meta, req, tok);
-                post([this, fg, p = std::move(p)]() mutable { on_page(fg, std::move(p)); });
+                post([this, fg, p = std::move(p)]() mutable {
+                    diagnostics::set_phase(diagnostics::Phase::RenderingPage);
+                    on_page(fg, std::move(p));
+                    diagnostics::set_phase(diagnostics::Phase::Idle);
+                });
             } catch (const DbError &e) {
                 std::string m = e.what();
                 bool cancelled = e.kind == ErrKind::Cancelled;
                 post([this, fg, m, cancelled] {
                     if (fg != fetch_gen_) return;
+                    diagnostics::set_phase(diagnostics::Phase::Idle);
                     loading_ = false;
                     B().set_loading(false);
                     set_busy();
@@ -1254,6 +1315,7 @@ private:
                 std::string m = e.what();
                 post([this, fg, m] {
                     if (fg != fetch_gen_) return;
+                    diagnostics::set_phase(diagnostics::Phase::Idle);
                     loading_ = false;
                     B().set_loading(false);
                     set_busy();
@@ -1968,6 +2030,7 @@ private:
         B().set_lang_index(store_.settings.lang == "es" ? 0 : 1);
         B().set_auto_update(store_.settings.auto_update);
         B().set_monitor_interval_index(monitor_interval_index());
+        B().set_settings_page_size_index(page_size_index());
         B().set_settings_open(true);
     }
 
@@ -2440,7 +2503,7 @@ private:
 private:
     slint::ComponentHandle<AppWindow> ui_;
     Store store_;
-    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
+    std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
     std::atomic<int> workers_ { 0 };
 
     // connection

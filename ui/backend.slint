@@ -22,6 +22,11 @@ export global Backend {
     callback toggle-theme();
     callback toggle-language();
     callback about();
+    in-out property <bool> about-open: false;
+    in property <string> about-version: "";
+    in property <string> about-copyright: "";
+    in property <string> about-repository: "";
+    callback open-repository();
     in property <bool> update-badge: false;   // a newer release was found
     callback open-settings();
     callback view-changed(int);
@@ -50,6 +55,9 @@ export global Backend {
     callback start-update();
     callback open-data-dir();
     callback open-drivers-dir();
+    callback open-logs-dir();
+    in property <int> settings-page-size-index: 1;
+    callback settings-page-size(int);
 
     // ---- live monitor
     in property <bool> mon-supported: false;

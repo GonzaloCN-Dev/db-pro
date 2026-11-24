@@ -3,7 +3,7 @@ import { Theme } from "theme.slint";
 import { Backend } from "backend.slint";
 import { Icon, Btn, IconBtn, TextField, Dropdown, Badge, Sep, Spinner, EmptyState, ProgressBar } from "widgets.slint";
 import { DataGrid, ResultGrid } from "grid.slint";
-import { ConfirmDialog, ConnectionDialog, ExportDialog, DetailDialog, SettingsDialog } from "dialogs.slint";
+import { ConfirmDialog, ConnectionDialog, ExportDialog, DetailDialog, SettingsDialog, AboutDialog } from "dialogs.slint";
 import { TreeRowUi, TabUi, MetricUi } from "types.slint";
 
 component EnvBadge inherits Rectangle {
@@ -723,5 +723,6 @@ export component AppWindow inherits Window {
     if Backend.exp-open: ExportDialog { width: root.width; height: root.height; }
     if Backend.detail-open: DetailDialog { width: root.width; height: root.height; }
     if Backend.settings-open: SettingsDialog { width: root.width; height: root.height; }
+    if Backend.about-open: AboutDialog { width: root.width; height: root.height; }
     if Backend.dlg-confirm-open: ConfirmDialog { width: root.width; height: root.height; }
 }
