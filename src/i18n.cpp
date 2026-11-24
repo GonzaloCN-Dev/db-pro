@@ -127,6 +127,7 @@ const Entry kTable[] = {
     { "conn.file-missing", "That file does not exist.", "Ese archivo no existe." },
     { "engine.soon", " (not available yet)", " (aún no disponible)" },
     { "engine.experimental", " (experimental)", " (experimental)" },
+    { "note.crdb", "Tested against CockroachDB 25.2 (single node, insecure mode, 58 checks). Authentication and TLS are untested.", "Probado con CockroachDB 25.2 (nodo único, modo inseguro, 58 comprobaciones). Autenticación y TLS sin probar." },
     { "note.pg", "Uses the PostgreSQL driver over the compatible protocol. Not tested against a real server of this engine.", "Usa el driver de PostgreSQL por el protocolo compatible. Sin probar contra un servidor real de este motor." },
     { "note.my", "Uses the MySQL/MariaDB driver over the compatible protocol. Not tested against a real server of this engine.", "Usa el driver de MySQL/MariaDB por el protocolo compatible. Sin probar contra un servidor real de este motor." },
     { "note.mongo", "Uses the MongoDB driver over the compatible protocol. Not tested against a real server of this engine.", "Usa el driver de MongoDB por el protocolo compatible. Sin probar contra un servidor real de este motor." },

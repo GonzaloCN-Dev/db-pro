@@ -13,7 +13,8 @@ Estados: **Probado** (integración contra un servidor real de ese motor), **Expe
 | MySQL | driver `mysql` | Experimental |
 | SQL Server | driver `mssql` (ODBC 18) | Experimental |
 | MongoDB | driver `mongodb` | Probado (8.0 standalone) |
-| Cloudberry, CockroachDB, CrateDB, EDB, Fujitsu Enterprise Postgres, GaussDB, Greengage, Greenplum, GreptimeDB, Kingbase, Materialize, RisingWave, TimescaleDB, Yellowbrick, YugabyteDB (YSQL) | driver `postgres` | Experimental |
+| CockroachDB | driver `postgres` | Probado (25.2, nodo único sin TLS ni autenticación; 58/58) |
+| Cloudberry, CrateDB, EDB, Fujitsu Enterprise Postgres, GaussDB, Greengage, Greenplum, GreptimeDB, Kingbase, Materialize, RisingWave, TimescaleDB, Yellowbrick, YugabyteDB (YSQL) | driver `postgres` | Experimental |
 | Databend, Apache Doris, MySQL NDB Cluster, OceanBase (modo MySQL), SingleStore, StarRocks, TiDB, VeloDB | driver `mysql` | Experimental |
 | Azure SQL Database, Babelfish | driver `mssql` | Experimental |
 | Amazon DocumentDB, FerretDB | driver `mongodb` | Experimental |
@@ -27,3 +28,6 @@ Los drivers ODBC del fabricante los instala el usuario; muchos son de pago y no 
 
 ## Excluidos
 H2 y H2GIS (embebido), HSQLDB (embebido), Apache Derby (embebido), GemFire XD y SnappyData: solo Java. El servidor H2 se alcanza con su modo PostgreSQL. Se reconsiderará solo si se cambia la regla de no usar JVM (D-007).
+
+## Sin binario de Windows para probar
+FerretDB (v2 exige PostgreSQL con la extensión DocumentDB) y TiDB no publican servidor para Windows: se quedan Experimental hasta disponer de un servidor.

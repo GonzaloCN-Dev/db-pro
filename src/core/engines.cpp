@@ -30,7 +30,7 @@ const std::vector<EngineDef> &engine_catalog()
 
         // PostgreSQL wire protocol
         { "cloudberry", "Apache Cloudberry", "postgres", 5432, X, kPgNote },
-        { "cockroachdb", "CockroachDB", "postgres", 26257, X, kPgNote },
+        { "cockroachdb", "CockroachDB", "postgres", 26257, T, "note.crdb" },
         { "cratedb", "CrateDB", "postgres", 5432, X, kPgNote },
         { "edb", "EDB Postgres", "postgres", 5444, X, kPgNote },
         { "fujitsupg", "Fujitsu Enterprise Postgres", "postgres", 27500, X, kPgNote },

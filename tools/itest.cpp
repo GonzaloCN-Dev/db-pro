@@ -358,7 +358,8 @@ int main()
     {
         Profile bad = p;
         std::string em;
-        CHECK(throws(ErrKind::Connection, [&] { drivers::connect(bad, "definitely-wrong-password"); }, &em), "wrong password => Connection error");
+        if (env("ITEST_NOAUTH", "0") == "1") std::printf("  skip  wrong password (server runs without authentication)\n");
+        else CHECK(throws(ErrKind::Connection, [&] { drivers::connect(bad, "definitely-wrong-password"); }, &em), "wrong password => Connection error");
         std::printf("        (message: %s)\n", em.c_str());
         bad = p;
         bad.port = 1;

@@ -264,7 +264,7 @@ public:
     {
         auto rows = query_values(db,
                                  "SELECT c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-                                 "WHERE n.nspname = $1 AND c.relkind IN ('r','p','v','m','f') AND NOT c.relispartition ORDER BY c.relkind IN ('v','m'), c.relname",
+                                 "WHERE n.nspname = $1 AND c.relkind IN ('r','p','v','m','f') AND c.relispartition IS NOT TRUE ORDER BY c.relkind IN ('v','m'), c.relname",
                                  { Value::text(schema.empty() ? "public" : schema) }, 2);
         std::vector<ObjectInfo> out;
         for (auto &r : rows) {
