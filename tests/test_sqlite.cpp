@@ -44,6 +44,22 @@ TEST(sqlite_metadata_and_row_identity)
     CHECK(m.columns[4].cls == TypeClass::Decimal);
 }
 
+TEST(sqlite_local_activity_reports_connection_cache_metrics)
+{
+    auto c = connect_sqlite(tmp_db("activity"), false);
+    CHECK(c->caps().activity);
+    CHECK(!c->caps().kill_session);
+    Activity a = c->activity();
+    CHECK(a.rows.empty());
+    bool has_cache = false, has_hits = false;
+    for (const Metric &m : a.metrics) {
+        if (m.key == "cache_used" && m.unit == "B") has_cache = true;
+        if (m.key == "cache_hits" && m.counter) has_hits = true;
+    }
+    CHECK(has_cache);
+    CHECK(has_hits);
+}
+
 TEST(table_without_primary_key_is_not_editable)
 {
     auto c = connect_sqlite(tmp_db("nopk"), false);

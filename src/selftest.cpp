@@ -101,11 +101,15 @@ std::string key_text(const std::string &name)
 
 } // namespace
 
-SelfTest::SelfTest(slint::Window &window, std::string script_path, std::string out_dir) : win_(window), out_dir_(std::move(out_dir))
+SelfTest::SelfTest(slint::Window &window, std::string script_path, std::string out_dir, std::function<bool(const std::string &)> probe)
+    : win_(window), out_dir_(std::move(out_dir)), probe_(std::move(probe))
 {
     std::ifstream f(script_path);
+    if (!f) failed_ = true;
     std::string l;
     while (std::getline(f, l)) {
+        if (lines_.empty() && l.size() >= 3 && (uint8_t)l[0] == 0xEF && (uint8_t)l[1] == 0xBB && (uint8_t)l[2] == 0xBF)
+            l.erase(0, 3);
         while (!l.empty() && (l.back() == '\r' || l.back() == ' ')) l.pop_back();
         if (!l.empty() && l[0] != '#') lines_.push_back(l);
     }
@@ -120,8 +124,35 @@ void SelfTest::start()
 void SelfTest::step()
 {
     if (wait_ms_ > 0) { wait_ms_ -= 50; return; }
-    if (next_ >= lines_.size()) { timer_.stop(); return; }
-    run_line(lines_[next_++]);
+    if (!wait_for_.empty()) {
+        if (probe(wait_for_)) { wait_for_.clear(); return; }
+        wait_for_ms_ -= 50;
+        if (wait_for_ms_ <= 0) {
+            std::string message = "timeout waiting for " + wait_for_;
+            std::fprintf(stderr, "selftest: %s\n", message.c_str());
+            failed_ = true;
+            failures_.push_back(std::move(message));
+            wait_for_.clear();
+        }
+        return;
+    }
+    if (next_ >= lines_.size()) { finish(); return; }
+    if (!run_line(lines_[next_++])) failed_ = true;
+}
+
+bool SelfTest::probe(const std::string &condition) const
+{
+    return probe_ && probe_(condition);
+}
+
+void SelfTest::finish()
+{
+    if (finished_) return;
+    finished_ = true;
+    timer_.stop();
+    std::ofstream result(out_dir_ + "\\selftest-result.txt", std::ios::trunc);
+    result << (failed_ ? "FAIL\n" : "PASS\n");
+    for (const auto &failure : failures_) result << failure << '\n';
 }
 
 bool SelfTest::run_line(const std::string &line)
@@ -177,6 +208,23 @@ bool SelfTest::run_line(const std::string &line)
         wait_ms_ = 100;
     } else if (cmd == "wait") {
         in >> wait_ms_;
+    } else if (cmd == "assert") {
+        std::string condition;
+        in >> condition;
+        if (condition.empty() || !probe(condition)) {
+            std::string message = "assertion failed: " + condition;
+            std::fprintf(stderr, "selftest: %s\n", message.c_str());
+            failures_.push_back(std::move(message));
+            return false;
+        }
+    } else if (cmd == "wait-for") {
+        in >> wait_for_;
+        in >> wait_for_ms_;
+        if (wait_for_.empty() || wait_for_ms_ <= 0) {
+            std::fprintf(stderr, "selftest: invalid wait-for command\n");
+            return false;
+        }
+        if (probe(wait_for_)) wait_for_.clear();
     } else if (cmd == "shot") {
         std::string name;
         in >> name;
@@ -184,9 +232,12 @@ bool SelfTest::run_line(const std::string &line)
         if (img) write_png(out_dir_ + "\\" + name + ".png", *img);
         else std::fprintf(stderr, "selftest: snapshot unavailable\n");
     } else if (cmd == "quit") {
+        finish();
         slint::quit_event_loop();
     } else {
-        std::fprintf(stderr, "selftest: unknown command %s\n", cmd.c_str());
+        std::string message = "unknown command: " + cmd;
+        std::fprintf(stderr, "selftest: %s\n", message.c_str());
+        failures_.push_back(std::move(message));
         return false;
     }
     return true;

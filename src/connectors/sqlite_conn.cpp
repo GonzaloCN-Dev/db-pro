@@ -116,6 +116,7 @@ public:
         c.sql = true;
         c.regex = false;
         c.default_keyword = false;
+        c.activity = true;
         return c;
     }
 
@@ -328,6 +329,31 @@ public:
         }
         if (!buf.empty()) fn(buf);
         return total;
+    }
+
+    Activity activity() override
+    {
+        std::lock_guard<std::mutex> g(m_);
+        if (!db_) throw DbError(ErrKind::Connection, "SQLite connection is closed");
+        Activity a;
+        int current = 0, highwater = 0;
+        auto gauge = [&](int op, const char *key, const char *label) {
+            if (sqlite3_db_status(db_, op, &current, &highwater, 0) != SQLITE_OK)
+                throw DbError(ErrKind::Query, "could not read SQLite connection status");
+            a.metrics.push_back({ key, label, (double)current, false, "B" });
+        };
+        auto counter = [&](int op, const char *key, const char *label) {
+            if (sqlite3_db_status(db_, op, &current, &highwater, 0) != SQLITE_OK)
+                throw DbError(ErrKind::Query, "could not read SQLite connection counters");
+            a.metrics.push_back({ key, label, (double)current, true, "" });
+        };
+        gauge(SQLITE_DBSTATUS_CACHE_USED, "cache_used", "Page cache");
+        gauge(SQLITE_DBSTATUS_SCHEMA_USED, "schema_used", "Schema memory");
+        gauge(SQLITE_DBSTATUS_STMT_USED, "statement_memory", "Statement memory");
+        counter(SQLITE_DBSTATUS_CACHE_HIT, "cache_hits", "Cache hits");
+        counter(SQLITE_DBSTATUS_CACHE_MISS, "cache_misses", "Cache misses");
+        counter(SQLITE_DBSTATUS_CACHE_WRITE, "cache_writes", "Cache writes");
+        return a;
     }
 
     ApplyReport apply_changes(const TableMeta &m, const std::vector<Change> &changes) override

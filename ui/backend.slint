@@ -71,9 +71,15 @@ export global Backend {
     in property <[RowUi]> mon-rows;
     in property <length> mon-content-width: 0px;
     in-out property <int> mon-sel: -1;
+    in property <string> mon-search: "";
+    in property <bool> mon-blocked-only: false;
     in property <string> mon-query: "";
+    in property <bool> mon-kill-supported: false;
     in property <bool> mon-can-kill: false;
     callback mon-select(int);
+    callback mon-search-changed(string);
+    callback mon-toggle-blocked();
+    callback mon-sort(int);
     callback mon-kill();
     callback mon-toggle-pause();
     callback mon-refresh();

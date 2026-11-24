@@ -1,0 +1,52 @@
+# This script assumes the test runner created a disposable SQLite profile with customers/orders.
+size 1360 800
+wait 400
+assert not-connected
+assert monitor-unsupported
+click 100 146
+wait-for connected 5000
+click 100 174
+wait-for table-open 5000
+assert tab-count=1
+click 100 230
+wait-for tab-count=2 5000
+shot two-tabs
+# Edit a disposable SQLite row and verify the dirty-tab guard appears on close.
+click 330 66
+wait 250
+dclick 450 216
+type UsabilitySelfTest
+key enter
+wait 250
+assert dirty
+click 400 66
+wait 250
+assert dialog-open
+shot dirty-tab-guard
+click 775 436
+wait 200
+assert tab-count=1
+assert clean
+# Settings and persisted page-size preference.
+click 1334 24
+wait 300
+assert settings-open
+click 674 310
+wait 300
+assert page-size-index=2
+shot settings
+click 900 702
+wait 250
+click 1295 24
+wait 250
+assert about-open
+shot about
+click 870 502
+wait 250
+# Local SQLite activity is meaningful cache/connection telemetry, not server sessions.
+click 325 24
+wait-for monitor-supported 4000
+wait 1000
+assert monitor-metrics>=3
+shot local-monitor
+quit

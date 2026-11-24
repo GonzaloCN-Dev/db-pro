@@ -4,6 +4,9 @@
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
+#ifndef AppExtraDiskSpace
+  #define AppExtraDiskSpace 52428800
+#endif
 #define AppName "Db Pro"
 #define AppPublisher "Gonzalo Cruz Núñez"
 #define AppExe "DbPro.exe"
@@ -28,6 +31,7 @@ OutputDir=..\dist
 OutputBaseFilename=DbPro-Setup-{#AppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
+ExtraDiskSpaceRequired={#AppExtraDiskSpace}
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

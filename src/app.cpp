@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <ctime>
 #include <deque>
@@ -22,6 +23,7 @@
 #include "core/exporter.h"
 #include "core/filtertext.h"
 #include "core/sqlsafety.h"
+#include "core/activity_view.h"
 #include "diagnostics.h"
 #include "drivers/driver_manager.h"
 #include "i18n.h"
@@ -240,7 +242,7 @@ public:
         std::unique_ptr<SelfTest> selftest;
         if (const char *script = std::getenv("DBPRO_SELFTEST")) {
             const char *out = std::getenv("DBPRO_SELFTEST_OUT");
-            selftest = std::make_unique<SelfTest>(ui_->window(), script, out ? out : ".");
+            selftest = std::make_unique<SelfTest>(ui_->window(), script, out ? out : ".", [this](const std::string &c) { return selftest_probe(c); });
             selftest->start();
         }
         startup_update_check();
@@ -250,6 +252,42 @@ public:
     }
 
 private:
+    bool selftest_probe(const std::string &condition) const
+    {
+        auto number_after = [&](const char *prefix, int &value) {
+            const size_t n = std::char_traits<char>::length(prefix);
+            if (condition.rfind(prefix, 0) != 0) return false;
+            try { value = std::stoi(condition.substr(n)); return true; }
+            catch (...) { return false; }
+        };
+        int expected = 0;
+        if (condition == "connected") return connected_;
+        if (condition == "not-connected") return !connected_;
+        if (condition == "connecting") return connecting_;
+        if (condition == "connection-error") return last_connection_failed_;
+        if (condition == "table-open") return table_open_;
+        if (condition == "settings-open") return B().get_settings_open();
+        if (condition == "about-open") return B().get_about_open();
+        if (condition == "dirty") {
+            if (!changes_.empty()) return true;
+            for (const auto &t : tabs_) if (!t.changes.empty()) return true;
+            return false;
+        }
+        if (condition == "clean") {
+            if (!changes_.empty()) return false;
+            for (const auto &t : tabs_) if (!t.changes.empty()) return false;
+            return true;
+        }
+        if (condition == "dialog-open") return B().get_dlg_confirm_open();
+        if (condition == "monitor-supported") return B().get_mon_supported();
+        if (condition == "monitor-unsupported") return !B().get_mon_supported();
+        if (condition == "monitor-error") return !U(B().get_mon_error()).empty();
+        if (number_after("tab-count=", expected)) return (int)tabs_.size() == expected;
+        if (number_after("monitor-metrics>=", expected)) return (int)mon_activity_.metrics.size() >= expected;
+        if (number_after("page-size-index=", expected)) return B().get_settings_page_size_index() == expected;
+        return false;
+    }
+
     // ------------------------------------------------------------------ plumbing
     const Backend &B() const { return ui_->global<Backend>(); }
 
@@ -360,6 +398,20 @@ private:
         b.on_tab_close([this](int i) { close_tab(i); });
         b.on_view_changed([this](int v) { view_changed(v); });
         b.on_mon_select([this](int i) { monitor_select(i); });
+        b.on_mon_search_changed([this](slint::SharedString s) {
+            mon_search_ = U(s);
+            render_activity();
+        });
+        b.on_mon_toggle_blocked([this] {
+            mon_blocked_only_ = !mon_blocked_only_;
+            B().set_mon_blocked_only(mon_blocked_only_);
+            render_activity();
+        });
+        b.on_mon_sort([this](int i) {
+            if (i == mon_sort_col_) mon_sort_ascending_ = !mon_sort_ascending_;
+            else { mon_sort_col_ = i; mon_sort_ascending_ = true; }
+            render_activity();
+        });
         b.on_mon_kill([this] { monitor_kill(); });
         b.on_mon_toggle_pause([this] {
             mon_paused_ = !mon_paused_;
@@ -696,6 +748,7 @@ private:
     void connect(const Profile &p)
     {
         if (connecting_) return;
+        last_connection_failed_ = false;
         disconnect();
         connecting_ = true;
         connecting_id_ = p.id;
@@ -738,6 +791,7 @@ private:
                     if (cg != conn_gen_) return;
                     connecting_ = false;
                     connecting_id_.clear();
+                    last_connection_failed_ = true;
                     set_status(trf("status.connect-failed", { m }));
                     set_busy();
                     rebuild_tree();
@@ -2137,6 +2191,22 @@ private:
     // ------------------------------------------------------------------ live performance monitor
     bool monitor_active() const { return connected_ && B().get_view() == 2 && caps_.activity; }
 
+    std::string monitor_error_text(const std::string &message) const
+    {
+        std::string lower = message;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+        bool denied = lower.find("permission") != std::string::npos || lower.find("denied") != std::string::npos ||
+                      lower.find("not authorized") != std::string::npos || lower.find("insufficient privilege") != std::string::npos ||
+                      lower.find("not permitted") != std::string::npos;
+        if (!denied) return trf("mon.failed", { message });
+        std::string needed = tr("mon.permission-generic");
+        if (profile_.engine == "mssql") needed = tr("mon.permission-mssql");
+        else if (profile_.engine == "postgres") needed = tr("mon.permission-postgres");
+        else if (profile_.engine == "mysql" || profile_.engine == "mariadb") needed = tr("mon.permission-mysql");
+        else if (profile_.engine == "mongodb") needed = tr("mon.permission-mongodb");
+        return trf("mon.permission", { needed, message });
+    }
+
     void view_changed(int v)
     {
         if (v == 2) start_monitor();
@@ -2166,6 +2236,7 @@ private:
         mon_history_.clear();
         mon_prev_.clear();
         mon_sel_id_.clear();
+        mon_row_indices_.clear();
         mon_metrics_model_->set_vector({});
         mon_columns_model_->set_vector({});
         mon_rows_model_->set_vector({});
@@ -2174,8 +2245,15 @@ private:
         B().set_mon_updated(S(""));
         B().set_mon_summary(S(""));
         B().set_mon_query(S(""));
+        B().set_mon_search(S(""));
+        mon_search_.clear();
+        mon_blocked_only_ = false;
+        mon_sort_col_ = -1;
+        mon_sort_ascending_ = true;
+        B().set_mon_blocked_only(false);
         B().set_mon_sel(-1);
         B().set_mon_can_kill(false);
+        B().set_mon_kill_supported(false);
         B().set_mon_content_width(0);
     }
 
@@ -2207,7 +2285,7 @@ private:
                     if (gen != mon_gen_ || cg != conn_gen_) return;
                     mon_busy_ = false;
                     B().set_mon_loading(false);
-                    B().set_mon_error(S(trf("mon.failed", { m })));
+                    B().set_mon_error(S(monitor_error_text(m)));
                 });
             }
         });
@@ -2274,7 +2352,8 @@ private:
                                                                { "state", 100 }, { "command", 90 }, { "wait", 150 }, { "seconds", 80 }, { "blocked_by", 100 }, { "query", 420 } };
         std::vector<ColumnUi> cols;
         double x = 0;
-        for (const std::string &key : a.columns) {
+        for (size_t ci = 0; ci < a.columns.size(); ++ci) {
+            const std::string &key = a.columns[ci];
             ColumnUi u {};
             std::string label = tr("mon.col." + key);
             u.name = S(label == "mon.col." + key ? key : label);
@@ -2283,6 +2362,7 @@ private:
             u.x = (float)x;
             u.width = (float)width;
             u.align_right = key == "seconds";
+            u.sort = mon_sort_col_ == (int)ci ? (mon_sort_ascending_ ? 1 : 2) : 0;
             cols.push_back(u);
             x += width;
         }
@@ -2302,9 +2382,16 @@ private:
                 }
             }
         }
+        ActivityViewOptions opts;
+        opts.search = mon_search_;
+        opts.blocked_only = mon_blocked_only_;
+        opts.sort_column = mon_sort_col_;
+        opts.ascending = mon_sort_ascending_;
+        mon_row_indices_ = activity_visible_rows(a, opts);
         std::vector<RowUi> rows;
-        int sel = -1;
-        for (size_t r = 0; r < a.rows.size(); ++r) {
+        int sel = -1, selected_original = -1;
+        for (size_t vi = 0; vi < mon_row_indices_.size(); ++vi) {
+            size_t r = mon_row_indices_[vi];
             RowUi row {};
             auto cells = std::make_shared<slint::VectorModel<CellUi>>();
             for (auto &v : a.rows[r]) {
@@ -2313,38 +2400,49 @@ private:
                 cells->push_back(c);
             }
             row.cells = cells;
-            if (a.blocked_col >= 0 && !a.rows[r][a.blocked_col].display().empty()) row.state = 1;
-            else if (a.id_col >= 0 && blockers.count(a.rows[r][a.id_col].display())) row.state = 2;
-            if (a.id_col >= 0 && !mon_sel_id_.empty() && a.rows[r][a.id_col].display() == mon_sel_id_) sel = (int)r;
+            if (a.blocked_col >= 0 && a.blocked_col < (int)a.rows[r].size() &&
+                a.rows[r][a.blocked_col].kind != Value::Kind::Null && a.rows[r][a.blocked_col].kind != Value::Kind::Missing &&
+                !a.rows[r][a.blocked_col].display().empty()) row.state = 1;
+            else if (a.id_col >= 0 && a.id_col < (int)a.rows[r].size() && blockers.count(a.rows[r][a.id_col].display())) row.state = 2;
+            if (a.id_col >= 0 && a.id_col < (int)a.rows[r].size() && !mon_sel_id_.empty() && a.rows[r][a.id_col].display() == mon_sel_id_) {
+                sel = (int)vi;
+                selected_original = (int)r;
+            }
             rows.push_back(row);
         }
         mon_rows_model_->set_vector(rows);
         if (sel < 0) mon_sel_id_.clear();
         B().set_mon_sel(sel);
-        update_monitor_selection(sel);
+        update_monitor_selection(selected_original);
 
         std::string upd = trf("mon.updated", { mon_updated_ });
         if (mon_paused_) upd += " · " + tr("mon.paused");
         B().set_mon_updated(S(upd));
-        B().set_mon_summary(S(trf("mon.summary", { plain_number(metric_value("sessions"), false), plain_number(metric_value("active"), false), plain_number(metric_value("blocked"), false) })));
+        B().set_mon_summary(S(a.columns.empty()
+                                  ? tr("mon.local-summary")
+                                  : trf("mon.summary", { plain_number(metric_value("sessions"), false), plain_number(metric_value("active"), false),
+                                                         plain_number(metric_value("blocked"), false) })));
     }
 
     void update_monitor_selection(int sel)
     {
         const Activity &a = mon_activity_;
         std::string q;
-        if (sel >= 0 && sel < (int)a.rows.size() && a.query_col >= 0) q = a.rows[sel][a.query_col].display();
+        if (sel >= 0 && sel < (int)a.rows.size() && a.query_col >= 0 && a.query_col < (int)a.rows[sel].size()) q = a.rows[sel][a.query_col].display();
         B().set_mon_query(S(q));
+        B().set_mon_kill_supported(caps_.kill_session && !profile_.read_only);
         B().set_mon_can_kill(sel >= 0 && caps_.kill_session && !profile_.read_only);
     }
 
     void monitor_select(int i)
     {
         const Activity &a = mon_activity_;
-        if (i < 0 || i >= (int)a.rows.size() || a.id_col < 0) return;
-        mon_sel_id_ = a.rows[i][a.id_col].display();
+        if (i < 0 || i >= (int)mon_row_indices_.size() || a.id_col < 0) return;
+        int original = (int)mon_row_indices_[i];
+        if (original < 0 || original >= (int)a.rows.size() || a.id_col >= (int)a.rows[original].size()) return;
+        mon_sel_id_ = a.rows[original][a.id_col].display();
         B().set_mon_sel(i);
-        update_monitor_selection(i);
+        update_monitor_selection(original);
     }
 
     void monitor_kill()
@@ -2367,7 +2465,7 @@ private:
                     std::string m = e.what();
                     post([this, cg, m] {
                         if (cg != conn_gen_) return;
-                        notify(tr("mon.kill"), trf("mon.kill-failed", { m }));
+                        notify(tr("mon.kill"), monitor_error_text(m));
                     });
                 }
             });
@@ -2507,7 +2605,7 @@ private:
     std::atomic<int> workers_ { 0 };
 
     // connection
-    bool connected_ = false, connecting_ = false;
+    bool connected_ = false, connecting_ = false, last_connection_failed_ = false;
     std::string connecting_id_;
     Profile profile_;
     std::shared_ptr<Connector> conn_;
@@ -2558,6 +2656,11 @@ private:
     std::string mon_updated_, mon_sel_id_;
     std::map<std::string, double> mon_prev_, mon_rates_;
     std::map<std::string, std::deque<double>> mon_history_;
+    std::string mon_search_;
+    bool mon_blocked_only_ = false;
+    int mon_sort_col_ = -1;
+    bool mon_sort_ascending_ = true;
+    std::vector<size_t> mon_row_indices_;
 
     // sql
     bool sql_running_ = false;

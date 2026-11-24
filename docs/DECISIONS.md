@@ -51,3 +51,9 @@ The owner asked for ~230 engines (SQL, NoSQL, key-value, graph, embedded, analyt
 - Process crash records are local under `%APPDATA%\DbPro\logs\crashes.log` (or the configured data directory) and contain only exception code/address, module basename and last operation phase. SQL, row contents, hosts and credentials must never be recorded. The UI exposes the folder in Settings.
 - Workers must not outlive the Controller they capture. Shutdown waits for active worker completion after best-effort cancellation; this favors memory safety over prompt exit. If a connector can block indefinitely, add and verify connector-specific timeouts/cancellation before weakening this invariant.
 - The About dialog and installer metadata show the author copyright and repository link; identity remains sourced from `src/core/brand.h`.
+
+## D-010 — Local activity and portable distribution
+- SQLite and DuckDB may expose only metrics provided by their embedded engines/connections. They do not claim server-wide sessions, blocking graphs or kill-session support. If a metric API is unavailable, the UI must remain explicitly unsupported rather than synthesize one.
+- Portable distribution uses a launcher setting `DBPRO_DATA_DIR` to a writable sibling `data` directory. Passwords remain exclusively in the current Windows user's Credential Manager and are not portable.
+- Authenticode signing is opt-in and requires a user-provided, currently valid trusted code-signing certificate and private key. A release without one remains unsigned and must state that fact.
+- The Inno Setup package requests a conservative disk reserve in addition to its automatically calculated selected-file size; the build also emits an estimate for the release.

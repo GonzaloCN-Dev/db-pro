@@ -1,6 +1,6 @@
 {
   "name": "dbpro",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "builtin-baseline": "2f8bf7a5bad48aaef99d80b221fca712f016ab8f",
   "dependencies": [
     "nlohmann-json",

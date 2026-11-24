@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -416,6 +417,7 @@ public:
         c.schemas = true;
         c.sql = true;
         c.default_keyword = true;
+        c.activity = true;
         return c;
     }
 
@@ -591,6 +593,26 @@ public:
         }, c);
         if (!stopped && !buf.empty()) fn(buf);
         return total;
+    }
+
+    Activity activity() override
+    {
+        // DuckDB is embedded, not a server with independent sessions. Report engine-provided
+        // local memory usage only; do not synthesize server process/session metrics.
+        auto rows = query("SELECT coalesce(sum(memory_usage_bytes), 0), coalesce(sum(temporary_storage_bytes), 0) FROM duckdb_memory()", {});
+        Activity a;
+        auto value = [](const Value &v) -> double {
+            if (v.kind == Value::Kind::Int) return (double)v.i;
+            if (v.kind == Value::Kind::Float) return v.d;
+            char *end = nullptr;
+            double n = std::strtod(v.s.c_str(), &end);
+            return end == v.s.c_str() + v.s.size() ? n : 0;
+        };
+        if (!rows.empty() && rows[0].size() >= 2) {
+            a.metrics.push_back({ "memory_used", "Engine memory", value(rows[0][0]), false, "B" });
+            a.metrics.push_back({ "temporary_storage", "Temporary storage", value(rows[0][1]), false, "B" });
+        }
+        return a;
     }
 
     ApplyReport apply_changes(const TableMeta &m, const std::vector<Change> &changes) override

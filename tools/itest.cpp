@@ -66,6 +66,11 @@ int main()
     }
     std::printf("server: %s\n", c->server_info().c_str());
     Capabilities caps = c->caps();
+    if (eng == "duckdb") {
+        Activity activity = c->activity();
+        CHECK(caps.activity && !caps.kill_session, "DuckDB reports local activity without session-kill support");
+        CHECK(activity.rows.empty() && activity.metrics.size() >= 2, "DuckDB local memory metrics are available");
+    }
 
     const bool schemas = caps.schemas;
     if (schemas && schema.empty()) schema = eng == "mssql" ? "dbo" : eng == "duckdb" ? "main" : "public";

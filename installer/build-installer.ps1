@@ -26,10 +26,24 @@ if (Test-Path $drv) {
     Copy-Item (Join-Path $drv "dbpro_driver_*.dll") (Join-Path $payload "drivers")
 }
 
+$payloadBytes = (Get-ChildItem $payload -Recurse -File | Measure-Object -Property Length -Sum).Sum
+$reserveBytes = [math]::Max(50MB, [math]::Ceiling($payloadBytes * 0.10))
+$extraDiskSpace = [int64]$reserveBytes
+
 $iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
     Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $iscc) { throw "Inno Setup 6 is not installed (winget install JRSoftware.InnoSetup)" }
 
-& $iscc "/DAppVersion=$version" (Join-Path $PSScriptRoot "DbPro.iss")
+& $iscc "/DAppVersion=$version" "/DAppExtraDiskSpace=$extraDiskSpace" (Join-Path $PSScriptRoot "DbPro.iss")
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+@"
+Db Pro $version
+Approximate installed payload: $([math]::Round($payloadBytes / 1MB, 1)) MiB
+Additional safety reserve configured in installer: $([math]::Round($reserveBytes / 1MB, 1)) MiB
+Estimated space to plan for: $([math]::Round(($payloadBytes + $reserveBytes) / 1MB, 1)) MiB
+"@ | Set-Content (Join-Path $root "dist\DbPro-Setup-$version-space.txt") -Encoding utf8
 Get-ChildItem (Join-Path $root "dist") -Filter "DbPro-Setup-*.exe" | Select-Object Name, @{n="MB";e={[math]::Round($_.Length/1MB,1)}}
+
+if ($env:DBPRO_SIGN_CERT_THUMBPRINT) {
+    & (Join-Path $root "scripts\sign-release.ps1") -Thumbprint $env:DBPRO_SIGN_CERT_THUMBPRINT -File (Join-Path $root "dist\DbPro-Setup-$version.exe")
+}

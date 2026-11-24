@@ -18,7 +18,7 @@
 
 Db Pro es una aplicación de escritorio en español para explorar y editar bases de datos desde una sola interfaz. Está escrita en C++ con Slint: sin Electron, sin WebView y sin servidores locales. Gratis y sin cuenta. Desarrollado por **Gonzalo Cruz Núñez**.
 
-> **Estado: desarrollo temprano (0.2.1).** Consulta la [tabla de motores](#motores-de-bases-de-datos) y [`docs/PROGRESS.md`](docs/PROGRESS.md): solo se marcan como probados los motores con integración real.
+> **Estado: desarrollo temprano (0.2.2).** Consulta la [tabla de motores](#motores-de-bases-de-datos) y [`docs/PROGRESS.md`](docs/PROGRESS.md): solo se marcan como probados los motores con integración real.
 
 ## Capturas
 
@@ -70,18 +70,22 @@ Al elegir un motor en **Nueva conexión**, Db Pro comprueba si su driver (`dbpro
 
 ## Instalación
 
-1. Ejecuta el instalador **`DbPro-Setup-0.2.1.exe`**.
+1. Ejecuta el instalador **`DbPro-Setup-0.2.2.exe`**.
 2. No requiere permisos de administrador para instalarse en tu usuario.
 3. Durante la instalación puedes marcar los drivers opcionales que quieras incluir.
 4. Inicia Db Pro desde el menú Inicio.
 
-El instalador incluye el runtime de Visual C++. Es x64 para Windows 10/11 y **no está firmado**, así que Windows SmartScreen puede mostrar un aviso de editor desconocido. Al desinstalar te pregunta si quieres borrar también tus conexiones y ajustes; las contraseñas del Administrador de credenciales no se tocan.
+El instalador muestra el espacio requerido calculado por Inno Setup y reserva un margen adicional. Con todos los drivers, planifica aproximadamente **111 MiB**. Incluye el runtime de Visual C++. Es x64 para Windows 10/11 y **no está firmado**, así que Windows SmartScreen puede mostrar un aviso de editor desconocido. Al desinstalar te pregunta si quieres borrar también tus conexiones y ajustes; las contraseñas del Administrador de credenciales no se tocan.
 
 ## Requisitos
 
 - Windows 10 u 11 de 64 bits.
 - Para desarrollar: Visual Studio 2022 o posterior con C++ y CMake, Ninja, [vcpkg](https://github.com/microsoft/vcpkg) e Inno Setup 6 para el instalador.
 - Conexión a Internet en la primera compilación, para descargar Slint y las dependencias.
+
+### Versión portable
+
+También está disponible **`DbPro-Portable-0.2.2.zip`**. Extrae la carpeta en una ubicación con permiso de escritura e inicia `DbPro-Portable.cmd`; los perfiles y ajustes se guardan en `data` junto a la aplicación. Las contraseñas siguen en el Administrador de credenciales de Windows del usuario actual: al mover la carpeta a otro usuario o equipo tendrás que volver a introducirlas.
 
 ### Tecnologías
 
@@ -133,7 +137,7 @@ Hecho con cuidado para que trabajar con tus bases de datos sea más sencillo.
 
 ### Status
 
-Early development (0.2.1). SQLite is built in. PostgreSQL, MySQL/MariaDB, MongoDB and DuckDB have passed integration tests; SQL Server is compile-tested only. Check [`docs/PROGRESS.md`](docs/PROGRESS.md) for verified functionality and limitations.
+Early development (0.2.2). SQLite is built in. PostgreSQL, MySQL/MariaDB, MongoDB and DuckDB have passed integration tests; SQL Server is compile-tested only. Check [`docs/PROGRESS.md`](docs/PROGRESS.md) for verified functionality and limitations.
 
 ### Features
 

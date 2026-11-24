@@ -1,0 +1,8 @@
+# The runner supplies a SQLite path under a deliberately nonexistent parent directory.
+size 1360 800
+wait 400
+click 100 146
+wait-for connection-error 6000
+assert dialog-open
+shot connection-error
+quit

@@ -484,14 +484,27 @@ component MonitorView inherits Rectangle {
                 padding-right: 12px;
                 spacing: 6px;
                 Text { text: Backend.t("mon.title"); font-size: 14px; font-weight: 700; color: Theme.text; vertical-alignment: center; }
-                Rectangle { width: 6px; }
+                if Backend.mon-columns.length > 0: TextField {
+                    width: 190px;
+                    height: 30px;
+                    value: Backend.mon-search;
+                    placeholder: Backend.t("mon.search");
+                    edited(s) => { Backend.mon-search-changed(s); }
+                }
+                if Backend.mon-columns.length > 0: Btn {
+                    text: Backend.t("mon.blocked-only");
+                    compact: true;
+                    kind: Backend.mon-blocked-only ? "primary" : "default";
+                    clicked => { Backend.mon-toggle-blocked(); }
+                }
+                Rectangle { width: 2px; }
                 IconBtn { glyph: Backend.mon-paused ? "\u{E768}" : "\u{E769}"; enabled: Backend.mon-supported; active: Backend.mon-paused; clicked => { Backend.mon-toggle-pause(); } }
                 IconBtn { glyph: "\u{E72C}"; enabled: Backend.mon-supported; clicked => { Backend.mon-refresh(); } }
                 if Backend.mon-loading: Spinner { size: 14px; }
                 Text { text: Backend.mon-updated; font-size: 11px; color: Theme.text-faint; vertical-alignment: center; }
                 Rectangle { }
                 Text { text: Backend.mon-summary; font-size: 12px; color: Theme.text-dim; vertical-alignment: center; }
-                if Backend.mon-supported: Btn { text: Backend.t("mon.kill"); kind: "danger"; compact: true; enabled: Backend.mon-can-kill; clicked => { Backend.mon-kill(); } }
+                if Backend.mon-kill-supported: Btn { text: Backend.t("mon.kill"); kind: "danger"; compact: true; enabled: Backend.mon-can-kill; clicked => { Backend.mon-kill(); } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
         }
@@ -501,9 +514,9 @@ component MonitorView inherits Rectangle {
             text: Backend.connected ? Backend.t("mon.unsupported-text") : Backend.t("data.not-connected-text");
         }
         if Backend.mon-supported && Backend.mon-error != "": Rectangle {
-            height: 30px;
+            height: 48px;
             background: Theme.danger-soft;
-            Text { x: 12px; width: parent.width - 24px; text: Backend.mon-error; font-size: 12px; color: Theme.danger; vertical-alignment: center; overflow: elide; }
+            Text { x: 12px; y: 4px; width: parent.width - 24px; height: parent.height - 8px; text: Backend.mon-error; font-size: 11px; color: Theme.danger; vertical-alignment: center; wrap: word-wrap; overflow: elide; }
         }
         if Backend.mon-supported: Rectangle {
             height: ceil(Backend.mon-metrics.length / root.per-row) * (root.card-h + 8px) + 8px;
@@ -515,7 +528,7 @@ component MonitorView inherits Rectangle {
                 height: root.card-h;
             }
         }
-        if Backend.mon-supported: mon-table := Rectangle {
+        if Backend.mon-supported && Backend.mon-columns.length > 0: mon-table := Rectangle {
             vertical-stretch: 1;
             min-height: 120px;
             clip: true;
@@ -530,7 +543,11 @@ component MonitorView inherits Rectangle {
                     for col[ci] in Backend.mon-columns: Rectangle {
                         x: col.x * mon-table.scale;
                         width: col.width * mon-table.scale;
-                        Text { x: 8px; width: parent.width - 16px; text: col.name; font-size: 11px; font-weight: 700; color: Theme.text-dim; overflow: elide; vertical-alignment: center; }
+                        Text { x: 8px; width: parent.width - 16px; text: col.name + (col.sort == 1 ? " ↑" : col.sort == 2 ? " ↓" : ""); font-size: 11px; font-weight: 700; color: Theme.text-dim; overflow: elide; vertical-alignment: center; }
+                        TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { Backend.mon-sort(ci); }
+                        }
                     }
                 }
                 ListView {
@@ -560,11 +577,20 @@ component MonitorView inherits Rectangle {
             if Backend.mon-rows.length == 0 && Backend.mon-error == "": Text {
                 y: 40px;
                 width: parent.width;
-                text: Backend.t("mon.no-sessions");
+                text: Backend.mon-search != "" || Backend.mon-blocked-only ? Backend.t("mon.no-matches")
+                    : Backend.t("mon.no-sessions");
                 font-size: 12px;
                 color: Theme.text-faint;
                 horizontal-alignment: center;
             }
+        }
+        if Backend.mon-supported && Backend.mon-columns.length == 0: Text {
+            vertical-stretch: 1;
+            text: Backend.t("mon.local-empty");
+            font-size: 12px;
+            color: Theme.text-faint;
+            horizontal-alignment: center;
+            vertical-alignment: center;
         }
         if Backend.mon-supported && Backend.mon-query != "": Rectangle {
             height: 96px;

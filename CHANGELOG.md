@@ -1,5 +1,14 @@
 ﻿# Changelog
 
+## 0.2.2
+- Monitor con búsqueda de sesiones, filtro «solo bloqueadas», orden por columnas y mensajes orientativos para permisos de monitorización.
+- Actividad local real para SQLite (memoria de caché y contadores) y DuckDB (memoria del motor/almacenamiento temporal); no muestra sesiones ni ofrece terminación para estos motores.
+- Autotest UI con aserciones y espera por estado: perfiles temporales, pestañas sucias, ajustes, errores de conexión y monitor local.
+- Instalador con reserva de espacio adicional y estimación documentada del espacio instalado; probada la actualización silenciosa 0.2.0 → 0.2.2 en una carpeta temporal.
+- Paquete portable ZIP evaluado y probado en carpeta temporal. Los perfiles/ajustes son locales al paquete; contraseñas siguen en Windows Credential Manager y no viajan con él.
+- Firma Authenticode condicional; no se encontró certificado de firma disponible en el entorno, por lo que el instalador se publica sin firmar.
+- 76 tests unitarios pasan; DuckDB 91/91 en prueba de integración local.
+
 ## 0.2.1
 - Evita destruir el controlador mientras quedan tareas de conectores en curso al cerrar la aplicación; la salida espera a que terminen.
 - Diagnóstico local de cierres: código de excepción, módulo y fase, sin SQL, nombres de servidor ni credenciales; acceso a los registros desde Ajustes.

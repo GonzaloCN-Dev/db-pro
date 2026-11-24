@@ -1,0 +1,8 @@
+size 1360 800
+wait 300
+click 1334 24
+wait 250
+assert settings-open
+assert page-size-index=2
+shot persisted-settings
+quit
