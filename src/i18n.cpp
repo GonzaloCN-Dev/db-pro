@@ -126,6 +126,14 @@ const Entry kTable[] = {
     { "conn.engine-unavailable", "This engine is not available in this build yet.", "Este motor aún no está disponible en esta versión." },
     { "conn.file-missing", "That file does not exist.", "Ese archivo no existe." },
     { "engine.soon", " (not available yet)", " (aún no disponible)" },
+    { "engine.download", " (driver to download)", " (driver por descargar)" },
+    { "driver.install", "Download and install driver", "Descargar e instalar driver" },
+    { "driver.installing", "Installing…", "Instalando…" },
+    { "driver.missing", "{0} needs its own driver, which is not installed. It is downloaded only for this engine, checked against a SHA-256 and stored in your user folder.", "{0} necesita su propio driver y no está instalado. Se descarga solo para este motor, se verifica con un SHA-256 y se guarda en tu carpeta de usuario." },
+    { "driver.rejected", "The {0} driver was rejected: {1}", "El driver de {0} fue rechazado: {1}" },
+    { "driver.unimplemented", "{0} is not implemented in this version.", "{0} aún no está implementado en esta versión." },
+    { "driver.installed", "Driver installed.", "Driver instalado." },
+    { "driver.failed", "Driver installation failed: {0}", "No se pudo instalar el driver: {0}" },
     { "conn.pwd-failed", "The password could not be saved in Windows Credential Manager.", "No se pudo guardar la contraseña en el Administrador de credenciales." },
 
     // export

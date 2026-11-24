@@ -14,7 +14,6 @@ list(APPEND CMAKE_PREFIX_PATH "${DBPRO_PREFIX}")
 
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
-find_package(unofficial-libmariadb CONFIG REQUIRED)
 
 # ---------------------------------------------------------------- core (no UI)
 add_library(dbpro_core STATIC
@@ -26,22 +25,37 @@ add_library(dbpro_core STATIC
     src/store.cpp
     src/platform.cpp
     src/connectors/sqlite_conn.cpp
-    src/connectors/mysql_conn.cpp
     src/connectors/factory.cpp
+    src/drivers/driver_manager.cpp
     src/core/sqlsafety.cpp
     src/i18n.cpp
 )
 target_include_directories(dbpro_core PUBLIC src)
-target_link_libraries(dbpro_core PUBLIC unofficial::sqlite3::sqlite3 unofficial::libmariadb nlohmann_json::nlohmann_json advapi32 shell32 ole32 comdlg32 user32)
+target_link_libraries(dbpro_core PUBLIC unofficial::sqlite3::sqlite3 nlohmann_json::nlohmann_json advapi32 shell32 ole32 comdlg32 user32 bcrypt winhttp)
 if(MSVC)
     target_compile_options(dbpro_core PUBLIC /utf-8 /W3 /permissive- /EHsc)
     target_compile_definitions(dbpro_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
 endif()
 target_compile_definitions(dbpro_core PUBLIC APP_VERSION="${PROJECT_VERSION}")
 
+# ---------------------------------------------------------------- optional drivers (one DLL per engine family)
+# Each driver carries its own client libraries. They are found at runtime in <exe>\drivers or %APPDATA%\DbPro\drivers
+# and downloaded on demand, so the base app stays small and only ships SQLite.
+set(DBPRO_DRIVER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/drivers")
+
+find_package(unofficial-libmariadb CONFIG REQUIRED)
+add_library(dbpro_driver_mysql SHARED src/drivers/mysql_driver.cpp src/connectors/mysql_conn.cpp)
+target_link_libraries(dbpro_driver_mysql PRIVATE dbpro_core unofficial::libmariadb)
+
+add_custom_target(dbpro_drivers DEPENDS dbpro_driver_mysql)
+foreach(drv dbpro_driver_mysql)
+    set_target_properties(${drv} PROPERTIES PREFIX "" RUNTIME_OUTPUT_DIRECTORY "${DBPRO_DRIVER_OUTPUT_DIR}")
+endforeach()
 enable_testing()
-add_executable(dbpro_tests tests/test_main.cpp tests/test_sqlgen.cpp tests/test_sqlite.cpp tests/test_changes.cpp tests/test_export_store.cpp tests/test_sqlsafety.cpp)
+add_executable(dbpro_tests tests/test_main.cpp tests/test_sqlgen.cpp tests/test_sqlite.cpp tests/test_changes.cpp tests/test_export_store.cpp tests/test_sqlsafety.cpp tests/test_drivers.cpp)
 target_link_libraries(dbpro_tests PRIVATE dbpro_core)
+target_compile_definitions(dbpro_tests PRIVATE DBPRO_TEST_DRIVERS_DIR="${DBPRO_DRIVER_OUTPUT_DIR}")
+add_dependencies(dbpro_tests dbpro_drivers)
 add_test(NAME dbpro_tests COMMAND dbpro_tests)
 
 add_executable(dbpro_sqlq tools/sqlq.cpp)

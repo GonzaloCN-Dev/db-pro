@@ -151,6 +151,10 @@ export global Backend {
     in property <string> cd-message: "";
     in property <bool> cd-message-error: false;
     in property <bool> cd-testing: false;
+    in property <int> cd-driver: 0;          // 0 ready, 1 not installed (downloadable), 2 rejected, 3 not implemented
+    in property <string> cd-driver-text: "";
+    in property <bool> cd-driver-busy: false;
+    callback cd-driver-install();
     callback cd-engine-picked(int);
     callback cd-browse();
     callback cd-test();

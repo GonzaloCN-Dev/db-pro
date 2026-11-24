@@ -10,9 +10,11 @@ Native database studio for Windows 10/11 (C++20 + Slint). No Electron, no WebVie
 
 | Engine | Status |
 |---|---|
-| SQLite | Implemented, tested on temporary files and through the UI |
-| MySQL / MariaDB | Experimental: compiles, **not yet run against a server** |
+| SQLite | Built in. Implemented, tested on temporary files and through the UI |
+| MySQL / MariaDB | Optional driver. Experimental: **not yet run against a server** |
 | PostgreSQL, SQL Server, MongoDB | Not implemented yet |
+
+Only SQLite is inside the app. Other engines use an optional driver DLL that the connection dialog offers to download when you pick that engine, so you only get the libraries you use. See [docs/DRIVERS.md](docs/DRIVERS.md).
 
 ## Build
 

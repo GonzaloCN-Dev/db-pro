@@ -22,3 +22,11 @@ The initial brief asked for Rust; the owner then explicitly asked to use C++ lik
 
 ## D-005 — Optimistic concurrency by original-value WHERE
 Updates include the originally loaded values in the WHERE clause. Zero rows affected ⇒ Conflict, whole batch rolled back. Works on every SQL engine without schema changes. Large/JSON/binary columns are excluded from the check.
+
+## D-006 - One optional DLL per engine family; the base app ships only SQLite
+Reason: users should not download client libraries for engines they never use.
+- `DbPro.exe` links SQLite only. Each other engine family is `dbpro_driver_<id>.dll` (today: `mysql`, covering MySQL and MariaDB) and statically contains its client library (libmariadb, later libpq, ODBC glue, mongo-cxx).
+- Contract in `src/drivers/driver_api.h` (three C exports). The `Connector` object crosses the DLL boundary as a C++ object, so app and drivers must be built together; the loader rejects a driver whose ABI number or app version differs.
+- Lookup order: `<exe>\drivers\` (shipped, trusted like the exe) then `%APPDATA%\DbPro\drivers\` (downloaded). A DLL in the user folder loads only if its SHA-256 equals the hash recorded when Db Pro installed it, so a file dropped there by someone else is refused.
+- Download happens only when the user presses "Download and install driver". HTTPS only, certificate validation on, size cap, SHA-256 from `drivers.json` of release `v<app version>` checked before the file is written. No background or automatic downloads.
+- Trade-off accepted: dropping the vcpkg libraries from the main exe makes the driver DLLs larger than a shared-library design, but each is independent and removable.

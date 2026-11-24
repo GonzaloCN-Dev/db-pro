@@ -11,6 +11,9 @@ inline constexpr const char *kDescription = "Native universal database studio";
 inline constexpr const char *kDataDir = "DbPro";          // %APPDATA%\DbPro
 inline constexpr const char *kCredentialPrefix = "DbPro/"; // Windows Credential Manager target prefix
 
+// Where optional drivers are published. Layout: <base>v<version>/drivers.json and <base>v<version>/dbpro_driver_<id>.dll
+inline constexpr const char *kDriversUrlBase = "https://github.com/GonzaloCN-Dev/db-pro/releases/download/";
+
 #ifdef APP_VERSION
 inline constexpr const char *kVersion = APP_VERSION;
 #else

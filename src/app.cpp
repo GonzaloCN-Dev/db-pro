@@ -17,6 +17,7 @@
 #include "core/exporter.h"
 #include "core/filtertext.h"
 #include "core/sqlsafety.h"
+#include "drivers/driver_manager.h"
 #include "i18n.h"
 #include "platform.h"
 #include "selftest.h"
@@ -339,6 +340,7 @@ private:
             if (cb) cb(r);
         });
         b.on_cd_engine_picked([this](int i) { engine_picked(i); });
+        b.on_cd_driver_install([this] { install_driver(); });
         b.on_cd_browse([this] {
             auto p = platform::open_dialog(tr("conn.file"), { { "SQLite", "*.db;*.sqlite;*.sqlite3;*.db3" }, { "*.*", "*.*" } });
             if (p) B().set_cd_path(S(*p));
@@ -354,8 +356,54 @@ private:
     void refresh_engines()
     {
         std::vector<slint::SharedString> v;
-        for (auto &e : kEngines) v.push_back(S(std::string(e.label) + (engine_available(e.id) ? "" : tr("engine.soon"))));
+        for (auto &e : kEngines) {
+            auto st = drivers::probe_for_engine(e.id);
+            const char *suffix = st.state == drivers::State::Missing ? "engine.download" : st.state == drivers::State::NotImplemented ? "engine.soon" : nullptr;
+            v.push_back(S(std::string(e.label) + (suffix ? tr(suffix) : "")));
+        }
         engines_model_->set_vector(v);
+    }
+
+    // Shows whether the selected engine's driver is usable and offers to download it when it is not.
+    void refresh_driver_panel()
+    {
+        const Engine &e = kEngines[std::clamp(B().get_cd_engine(), 0, kEngineCount - 1)];
+        auto st = drivers::status_for_engine(e.id);
+        int code = 0;
+        std::string text;
+        switch (st.state) {
+        case drivers::State::Missing: code = 1; text = trf("driver.missing", { e.label }); break;
+        case drivers::State::Incompatible: code = 2; text = trf("driver.rejected", { e.label, st.detail }); break;
+        case drivers::State::NotImplemented: code = 3; text = trf("driver.unimplemented", { e.label }); break;
+        default: break;
+        }
+        B().set_cd_driver(code);
+        B().set_cd_driver_text(S(text));
+    }
+
+    void install_driver()
+    {
+        if (B().get_cd_driver_busy()) return;
+        std::string engine = kEngines[std::clamp(B().get_cd_engine(), 0, kEngineCount - 1)].id;
+        B().set_cd_driver_busy(true);
+        B().set_cd_driver_text(S(tr("driver.installing")));
+        spawn([this, engine] {
+            std::string err;
+            bool ok = drivers::install_for_engine(
+                engine, [this](const std::string &m) { post([this, m] { B().set_cd_driver_text(S(m)); }); }, nullptr, err);
+            post([this, ok, err] {
+                B().set_cd_driver_busy(false);
+                refresh_engines();
+                refresh_driver_panel();
+                if (ok) {
+                    B().set_cd_message(S(tr("driver.installed")));
+                    B().set_cd_message_error(false);
+                } else {
+                    B().set_cd_driver(1);
+                    B().set_cd_driver_text(S(trf("driver.failed", { err })));
+                }
+            });
+        });
     }
 
     void engine_picked(int i)
@@ -367,6 +415,7 @@ private:
         B().set_cd_file_based(std::string(kEngines[i].id) == "sqlite");
         if (cur.empty() || cur == std::to_string(old_default)) B().set_cd_port(S(kEngines[i].port ? std::to_string(kEngines[i].port) : ""));
         B().set_cd_message(S(""));
+        refresh_driver_panel();
     }
 
     void open_connection_editor(int flat_index)
@@ -410,6 +459,7 @@ private:
             B().set_cd_tls(true);
             B().set_cd_trust(false);
         }
+        refresh_driver_panel();
         B().set_conn_dlg_open(true);
     }
 
@@ -427,7 +477,7 @@ private:
         p.trust_server_cert = p.tls && B().get_cd_trust();
         while (!p.name.empty() && p.name.back() == ' ') p.name.pop_back();
         if (p.name.empty()) return tr("conn.need-name");
-        if (!engine_available(p.engine)) return tr("conn.engine-unavailable");
+        if (drivers::probe_for_engine(p.engine).state == drivers::State::NotImplemented) return tr("conn.engine-unavailable");
         if (p.engine == "sqlite") {
             p.path = U(B().get_cd_path());
             if (p.path.empty()) return tr("conn.need-path");

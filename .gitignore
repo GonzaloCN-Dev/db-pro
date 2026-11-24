@@ -27,3 +27,6 @@ settings.json
 .vscode/
 .idea/
 Thumbs.db
+
+# release staging
+/dist/

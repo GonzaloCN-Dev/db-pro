@@ -7,6 +7,7 @@
 |---|---|
 | Núcleo (valores, filtros tipados, generador SQL de 4 dialectos, ChangeSet, exportadores, store, seguridad SQL) | 52 tests automáticos pasan (`build\dbpro_tests.exe`) |
 | Conector SQLite | tests contra ficheros temporales |
+| Drivers opcionales (DLL por motor) | 6 tests: SHA-256, driver ausente, DLL ajena sin checksum rechazada, checksum incorrecto rechazado, driver real carga y devuelve error de conexión claro. UI: el diálogo muestra «driver por descargar» y el botón de instalar; la descarga devuelve el error 404 esperado porque aún no hay release |
 | Compilación | `DbPro.exe` enlaza (MSVC, Slint 1.19.0, backend `winit-software`) |
 | Arranque | ~30 MB de RAM en reposo (medido con WorkingSet, sin carga) |
 | Abrir tabla de 70.000 filas | muestra 100 filas, total «desconocido» hasta pulsar *Contar* |
