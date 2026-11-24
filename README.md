@@ -1,24 +1,89 @@
+<div align="center">
+
 # Db Pro
 
-*Connect. Query. Explore.*
+### Un estudio de bases de datos nativo, gratuito y para Windows.
 
-Native database studio for Windows 10/11 (C++20 + Slint). No Electron, no WebView, no telemetry.
+[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows)](#requisitos)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus)](#compilar-desde-el-código)
+[![Slint](https://img.shields.io/badge/UI-Slint-6B4EFF)](https://slint.dev)
+[![Licencia MIT](https://img.shields.io/badge/Licencia-MIT-green.svg)](LICENSE)
+[![Sin telemetría](https://img.shields.io/badge/telemetr%C3%ADa-ninguna-lightgrey)](#datos-y-privacidad)
 
-> **Status: early development (0.1.0).** See [docs/PROGRESS.md](docs/PROGRESS.md) for what has actually been run and verified.
+**Conecta. Consulta. Explora.**
 
-## Engines
+[Funciones](#funciones) · [Motores](#motores-de-bases-de-datos) · [Instalar](#instalación) · [Informar un problema](https://github.com/GonzaloCN-Dev/db-pro/issues)
 
-| Engine | Status |
-|---|---|
-| SQLite | Built in. Implemented, tested on temporary files and through the UI |
-| MySQL / MariaDB | Optional driver. Experimental: **not yet run against a server** |
-| PostgreSQL, SQL Server, MongoDB | Not implemented yet |
+</div>
 
-Only SQLite is inside the app. Other engines use an optional driver DLL that the connection dialog offers to download when you pick that engine, so you only get the libraries you use. See [docs/DRIVERS.md](docs/DRIVERS.md).
+Db Pro es una aplicación de escritorio en español para explorar y editar bases de datos desde una sola interfaz. Está escrita en C++ con Slint: sin Electron, sin WebView y sin servidores locales. Gratis y sin cuenta. Desarrollado por **Gonzalo Cruz Núñez**.
 
-## Build
+> **Estado: desarrollo temprano (0.1.0).** Hoy solo **SQLite** está implementado y probado de extremo a extremo. El resto de motores se está añadiendo como drivers opcionales; consulta la [tabla de motores](#motores-de-bases-de-datos) y [`docs/PROGRESS.md`](docs/PROGRESS.md), donde solo se anota lo que se ha ejecutado de verdad.
 
-Requires Visual Studio 2022 or later with the C++ and CMake tools, plus vcpkg.
+## Capturas
+
+| Tabla con 100 filas por página | Filtros en servidor y recuento |
+| --- | --- |
+| ![Rejilla de datos de Db Pro con filtros por columna](docs/screenshots/datos.png) | ![Filtro por país y recuento exacto bajo petición](docs/screenshots/filtros.png) |
+
+| Editor SQL | Nueva conexión y driver opcional |
+| --- | --- |
+| ![Editor SQL con una consulta agregada y su resultado](docs/screenshots/editor-sql.png) | ![Diálogo de conexión que ofrece descargar el driver de MySQL](docs/screenshots/conexion.png) |
+
+## Funciones
+
+| Función | Qué puedes hacer |
+| --- | --- |
+| **Explorador de conexiones** | Árbol de conexiones, bases de datos, tablas y vistas, con filtro rápido de objetos. |
+| **Rejilla de datos** | Ver tablas grandes sin congelar la ventana: se muestran 100 filas por página (configurable) y los datos se piden al servidor por páginas. |
+| **Filtros por columna en servidor** | Cada columna tiene su propio filtro tipado (contiene, igual, mayor que, entre, es nulo…). Se aplican en la base de datos sobre **toda** la tabla, no solo sobre lo visible. Se pueden combinar. |
+| **Orden remoto** | Ordenar por columna en el servidor, con paginación estable. |
+| **Total bajo petición** | No se lanza ningún `COUNT(*)` automático: el total aparece como «desconocido» hasta que pulsas **Contar**. Las estimaciones se marcan con «≈». |
+| **Edición con control de conflictos** | Edita celdas (comprobado en la interfaz); insertar, duplicar y borrar filas existen pero aún no se han probado en la interfaz. Antes de guardar ves el SQL exacto. Si otra persona cambió la fila, el guardado se rechaza y no se sobrescribe nada. Los cambios se aplican en bloque, o no se aplica ninguno. |
+| **Seguridad al editar** | Una fila se identifica por su clave primaria. Sin clave, o en una vista, la edición está bloqueada y la aplicación te dice por qué. |
+| **Exportar** | Exporta **todas** las filas que cumplen el filtro (no solo la página visible), en bloques, sin cargar el resultado entero en memoria. Formatos: CSV, TSV, JSON, NDJSON y SQL INSERT (los exportadores tienen tests automáticos; en la interfaz solo se ha comprobado CSV). |
+| **Editor SQL** | Ejecuta consultas con `Ctrl+Intro` o `F5`, con límite de filas, cancelación y exportación del resultado. Botones para abrir y guardar archivos `.sql` (aún sin probar). |
+| **Conexiones seguras** | Las contraseñas van al Administrador de credenciales de Windows, nunca a un archivo. Modo de solo lectura y etiqueta de entorno (Desarrollo, Pruebas, Preproducción, PRODUCCIÓN). |
+| **TLS** | La validación del certificado está activada por defecto; confiar sin validar es una opción explícita. |
+| **Drivers opcionales** | Solo SQLite viene dentro de la aplicación. Cada motor extra es una DLL que se descarga o instala únicamente si la eliges. |
+| **Personalización** | Interfaz en español e inglés, tema oscuro y claro. |
+
+## Motores de bases de datos
+
+| Motor | Estado |
+| --- | --- |
+| **SQLite** | Incluido en la aplicación. Implementado y probado con tests y con la interfaz sobre una tabla de 70.000 filas. |
+| **MySQL / MariaDB** | Driver opcional. **Experimental:** carga y informa errores de conexión (probado), pero **todavía no se ha ejecutado contra un servidor real**. |
+| **PostgreSQL** | En desarrollo. Aún no disponible. |
+| **SQL Server / Azure SQL** | En desarrollo (vía ODBC Driver 18). Aún no disponible. |
+| **MongoDB / Atlas** | En desarrollo. Aún no disponible. |
+
+Ningún motor se anuncia como estable hasta que sus pruebas de integración pasan contra un servidor real. La interfaz marca los motores sin driver con «(driver por descargar)» o «(aún no disponible)».
+
+### Cómo funcionan los drivers
+
+Al elegir un motor en **Nueva conexión**, Db Pro comprueba si su driver (`dbpro_driver_<motor>.dll`) está instalado. Si no lo está, el diálogo muestra el botón **Descargar e instalar driver**. Solo se descarga lo que eliges, por HTTPS, con el certificado validado y comprobando el SHA-256 antes de guardar el archivo. Una DLL ajena colocada en la carpeta de drivers se rechaza. Más detalles en [`docs/DRIVERS.md`](docs/DRIVERS.md).
+
+## Instalación
+
+1. Ejecuta el instalador **`DbPro-Setup-0.1.0.exe`**.
+2. No requiere permisos de administrador para instalarse en tu usuario.
+3. Durante la instalación puedes marcar los drivers opcionales que quieras incluir.
+4. Inicia Db Pro desde el menú Inicio.
+
+El instalador incluye el runtime de Visual C++. Es x64 para Windows 10/11 y **no está firmado**, así que Windows SmartScreen puede mostrar un aviso de editor desconocido. Al desinstalar te pregunta si quieres borrar también tus conexiones y ajustes; las contraseñas del Administrador de credenciales no se tocan.
+
+## Requisitos
+
+- Windows 10 u 11 de 64 bits.
+- Para desarrollar: Visual Studio 2022 o posterior con C++ y CMake, Ninja, [vcpkg](https://github.com/microsoft/vcpkg) e Inno Setup 6 para el instalador.
+- Conexión a Internet en la primera compilación, para descargar Slint y las dependencias.
+
+### Tecnologías
+
+C++20, [Slint](https://slint.dev) 1.19, [SQLite](https://sqlite.org), [nlohmann/json](https://github.com/nlohmann/json) y, en los drivers opcionales, [MariaDB Connector/C](https://github.com/mariadb-corporation/mariadb-connector-c).
+
+## Compilar desde el código
 
 ```powershell
 git clone https://github.com/microsoft/vcpkg third_party\vcpkg
@@ -27,18 +92,58 @@ third_party\vcpkg\bootstrap-vcpkg.bat
 build\dbpro_tests.exe
 ```
 
-## Installer
+El ejecutable queda en `build\DbPro.exe`. Para compilar los drivers y generar el instalador:
 
 ```powershell
-.\build.bat
 cmake --build build --target dbpro_drivers
-.\installer\build-installer.ps1   # needs Inno Setup 6; writes dist\DbPro-Setup-<version>.exe
+powershell -ExecutionPolicy Bypass -File .\installer\build-installer.ps1
 ```
 
-The installer lets you choose which optional drivers to include (none are required; SQLite is built in). Per-user install by default, no administrator rights needed.
+El instalador queda en `dist\DbPro-Setup-<versión>.exe`. Para preparar los drivers de una publicación (DLL más `drivers.json` con tamaño y SHA-256): `scripts\package-drivers.ps1`.
 
-Rules and decisions for contributors: [AGENTS.md](AGENTS.md), [docs/DECISIONS.md](docs/DECISIONS.md).
+## Datos y privacidad
 
-## License
+Las conexiones y los ajustes se guardan localmente en `%APPDATA%\DbPro`. Las contraseñas se guardan en el Administrador de credenciales de Windows y los perfiles exportados no las incluyen. Db Pro **no envía telemetría**, no muestra anuncios y no necesita una cuenta. La única conexión a Internet que hace por su cuenta es la descarga de un driver, y solo cuando tú pulsas el botón.
 
-MIT, see [LICENSE](LICENSE). Copyright © 2026 Gonzalo Cruz Núñez.
+## Licencias
+
+El código original de Db Pro se ofrece bajo [MIT](LICENSE). Integra componentes con sus propias licencias; consulta [`installer/LICENSES.txt`](installer/LICENSES.txt). Slint requiere mostrar su atribución: está incluida en el diálogo **Acerca de**.
+
+## Contribuir
+
+Las ideas, los informes de errores y las contribuciones son bienvenidos. Abre un [issue](https://github.com/GonzaloCN-Dev/db-pro/issues) para informar de un problema o proponer una mejora. Antes de abrir un PR grande, crea un issue para hablar del enfoque. Las reglas del proyecto están en [`AGENTS.md`](AGENTS.md) y [`docs/DECISIONS.md`](docs/DECISIONS.md). Para informar de una vulnerabilidad, lee [`SECURITY.md`](SECURITY.md).
+
+## Créditos
+
+Creado por **Gonzalo Cruz Núñez**. Interfaz construida con [Slint](https://slint.dev); JSON con [nlohmann/json](https://github.com/nlohmann/json).
+
+---
+
+<div align="center">
+Hecho con cuidado para que trabajar con tus bases de datos sea más sencillo.
+</div>
+
+## English
+
+**Db Pro** is a free, native Windows database studio written in C++20 with Slint. No Electron, no WebView, no telemetry.
+
+### Status
+
+Early development (0.1.0). Only **SQLite** is implemented and tested end to end. MySQL/MariaDB is an optional, experimental driver that has not yet been run against a real server. PostgreSQL, SQL Server and MongoDB are in development. See [`docs/PROGRESS.md`](docs/PROGRESS.md) for what has actually been verified.
+
+### Features
+
+- Connection tree with databases, tables and views.
+- Data grid that pages from the server (100 rows by default), with typed per-column filters applied server-side across the whole table, remote sorting, and an on-demand exact count (no automatic `COUNT(*)`).
+- Cell editing with a primary-key identity, the exact SQL shown before saving, optimistic concurrency (a changed row is a conflict, never silently overwritten) and all-or-nothing change sets.
+- Streaming export of all filtered rows to CSV, TSV, JSON, NDJSON or SQL INSERT.
+- SQL editor with cancellation and result export.
+- Passwords in the Windows Credential Manager, read-only mode, environment tags, TLS validation on by default.
+- Optional per-engine driver DLLs, downloaded only when you pick that engine (HTTPS, SHA-256 verified).
+- Spanish and English interface; dark and light themes.
+
+### Build
+
+Requirements: Visual Studio C++/CMake, Ninja, vcpkg and Inno Setup 6. Run `build.bat`, then `build\dbpro_tests.exe`. Build the installer with `installer\build-installer.ps1`.
+
+Original Db Pro code is MIT-licensed; third-party components retain their own licenses. See [`installer/LICENSES.txt`](installer/LICENSES.txt). Created by **Gonzalo Cruz Núñez**.
