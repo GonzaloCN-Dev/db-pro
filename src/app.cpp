@@ -13,6 +13,7 @@
 #include "app.h"
 #include "connectors/factory.h"
 #include "core/brand.h"
+#include "core/engines.h"
 #include "core/changes.h"
 #include "core/exporter.h"
 #include "core/filtertext.h"
@@ -70,34 +71,8 @@ bool starts_with_printable(const std::string &s)
     return true;
 }
 
-struct Engine {
-    const char *id;
-    const char *label;
-    int port;
-};
-const Engine kEngines[] = {
-    { "sqlite", "SQLite", 0 },
-    { "postgres", "PostgreSQL", 5432 },
-    { "mysql", "MySQL", 3306 },
-    { "mariadb", "MariaDB", 3306 },
-    { "mssql", "SQL Server", 1433 },
-    { "mongodb", "MongoDB", 27017 },
-    // Wire-compatible engines served by an existing driver. Experimental: not tested against a real server here.
-    { "yugabytedb", "YugabyteDB (experimental)", 5433 },
-    { "edb", "EDB Postgres (experimental)", 5444 },
-    { "cloudberry", "Apache Cloudberry (experimental)", 5432 },
-    { "greengage", "Greengage (experimental)", 5432 },
-    { "materialize", "Materialize (experimental)", 6875 },
-    { "risingwave", "RisingWave (experimental)", 4566 },
-    { "cratedb", "CrateDB (experimental)", 5432 },
-    { "kingbase", "Kingbase (experimental)", 54321 },
-    { "fujitsupg", "Fujitsu Enterprise Postgres (experimental)", 27500 },
-    { "yellowbrick", "Yellowbrick (experimental)", 5432 },
-    { "tidb", "TiDB (experimental)", 4000 },
-    { "oceanbase", "OceanBase, MySQL mode (experimental)", 2881 },
-    { "babelfish", "Babelfish for Aurora PostgreSQL (experimental)", 1433 },
-};
-constexpr int kEngineCount = (int)(sizeof kEngines / sizeof kEngines[0]);
+const std::vector<EngineDef> &kEngines = engine_catalog();
+const int kEngineCount = (int)engine_catalog().size();
 const int kPageSizes[] = { 50, 100, 250, 500, 1000 };
 
 struct Node {
@@ -373,7 +348,10 @@ private:
         for (auto &e : kEngines) {
             auto st = drivers::probe_for_engine(e.id);
             const char *suffix = st.state == drivers::State::Missing ? "engine.download" : st.state == drivers::State::NotImplemented ? "engine.soon" : nullptr;
-            v.push_back(S(std::string(e.label) + (suffix ? tr(suffix) : "")));
+            std::string label = e.label;
+            if (suffix) label += tr(suffix);
+            else if (e.status == EngineStatus::Experimental) label += tr("engine.experimental");
+            v.push_back(S(label));
         }
         engines_model_->set_vector(v);
     }
@@ -381,7 +359,7 @@ private:
     // Shows whether the selected engine's driver is usable and offers to download it when it is not.
     void refresh_driver_panel()
     {
-        const Engine &e = kEngines[std::clamp(B().get_cd_engine(), 0, kEngineCount - 1)];
+        const EngineDef &e = kEngines[std::clamp(B().get_cd_engine(), 0, kEngineCount - 1)];
         auto st = drivers::status_for_engine(e.id);
         int code = 0;
         std::string text;
@@ -390,6 +368,10 @@ private:
         case drivers::State::Incompatible: code = 2; text = trf("driver.rejected", { e.label, st.detail }); break;
         case drivers::State::NotImplemented: code = 3; text = trf("driver.unimplemented", { e.label }); break;
         default: break;
+        }
+        if (!code && e.note[0]) {
+            code = 4;
+            text = tr(e.note);
         }
         B().set_cd_driver(code);
         B().set_cd_driver_text(S(text));

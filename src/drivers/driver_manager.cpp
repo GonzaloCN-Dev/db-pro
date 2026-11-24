@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 
 #include "../core/brand.h"
+#include "../core/engines.h"
 #include "../platform.h"
 #include "driver_api.h"
 
@@ -26,26 +27,26 @@ namespace {
 struct DriverDef {
     const char *id;
     const char *file;
-    std::vector<const char *> engines;
     bool implemented;
 };
 
 const std::vector<DriverDef> &defs()
 {
     static const std::vector<DriverDef> d = {
-        { "mysql", "dbpro_driver_mysql.dll", { "mysql", "mariadb", "tidb", "oceanbase" }, true },
-        { "postgres", "dbpro_driver_postgres.dll", { "postgres", "yugabytedb", "edb", "cloudberry", "greengage", "materialize", "risingwave", "cratedb", "kingbase", "fujitsupg", "yellowbrick" }, true },
-        { "mssql", "dbpro_driver_mssql.dll", { "mssql", "babelfish" }, true },
-        { "mongodb", "dbpro_driver_mongodb.dll", { "mongodb" }, true },
+        { "mysql", "dbpro_driver_mysql.dll", true },
+        { "postgres", "dbpro_driver_postgres.dll", true },
+        { "mssql", "dbpro_driver_mssql.dll", true },
+        { "mongodb", "dbpro_driver_mongodb.dll", true },
     };
     return d;
 }
 
 const DriverDef *def_for_engine(const std::string &engine)
 {
+    const EngineDef *e = find_engine(engine);
+    if (!e || !*e->driver) return nullptr;
     for (auto &d : defs())
-        for (auto *e : d.engines)
-            if (engine == e) return &d;
+        if (std::string(e->driver) == d.id) return &d;
     return nullptr;
 }
 

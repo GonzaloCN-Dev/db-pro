@@ -104,7 +104,7 @@ export component ConnectionDialog inherits Modal {
             }
         }
         if Backend.cd-driver != 0: Rectangle {
-            background: Backend.cd-driver == 1 ? Theme.accent-soft : Theme.danger-soft;
+            background: (Backend.cd-driver == 1 || Backend.cd-driver == 4) ? Theme.accent-soft : Theme.danger-soft;
             border-radius: 6px;
             VerticalLayout {
                 padding: 10px;
