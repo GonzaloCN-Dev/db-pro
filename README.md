@@ -27,6 +27,16 @@ third_party\vcpkg\bootstrap-vcpkg.bat
 build\dbpro_tests.exe
 ```
 
+## Installer
+
+```powershell
+.\build.bat
+cmake --build build --target dbpro_drivers
+.\installer\build-installer.ps1   # needs Inno Setup 6; writes dist\DbPro-Setup-<version>.exe
+```
+
+The installer lets you choose which optional drivers to include (none are required; SQLite is built in). Per-user install by default, no administrator rights needed.
+
 Rules and decisions for contributors: [AGENTS.md](AGENTS.md), [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## License

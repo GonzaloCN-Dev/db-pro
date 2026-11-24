@@ -84,11 +84,13 @@ if(DBPRO_BUILD_APP)
     set(SLINT_FEATURE_RENDERER_SOFTWARE ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(Slint)
 
+    configure_file(resources/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/app.rc @ONLY)
+
     add_executable(DbPro WIN32
         src/main.cpp
         src/app.cpp
         src/selftest.cpp
-        resources/app.rc
+        ${CMAKE_CURRENT_BINARY_DIR}/app.rc
     )
     target_include_directories(DbPro PRIVATE src)
     target_link_libraries(DbPro PRIVATE dbpro_core Slint::Slint advapi32 shell32 ole32)

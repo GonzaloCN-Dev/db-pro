@@ -1,0 +1,80 @@
+﻿DB PRO
+Desarrollado por Gonzalo Cruz Núñez. Software libre y gratuito (licencia MIT).
+
+MIT License
+
+Copyright (c) 2026 Gonzalo Cruz Núñez
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Db Pro incluye o utiliza los siguientes componentes de terceros:
+
+------------------------------------------------------------------------
+Slint  (https://slint.dev)   -   Licencia Slint Royalty-Free
+------------------------------------------------------------------------
+La interfaz está construida con Slint bajo la licencia Royalty-Free, que
+exige mostrar la atribución "Made with Slint" (visible en Acerca de).
+Texto completo de la licencia:
+https://github.com/slint-ui/slint/blob/v1.19.0/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md
+
+------------------------------------------------------------------------
+SQLite  (https://sqlite.org)   -   Dominio público
+------------------------------------------------------------------------
+SQLite es de dominio público: https://sqlite.org/copyright.html
+
+------------------------------------------------------------------------
+nlohmann/json  -   Licencia MIT
+------------------------------------------------------------------------
+MIT License 
+
+Copyright (c) 2013-2025 Niels Lohmann
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+------------------------------------------------------------------------
+MariaDB Connector/C (libmariadb)  -  LGPL 2.1   [solo en el driver opcional MySQL/MariaDB]
+------------------------------------------------------------------------
+El driver opcional dbpro_driver_mysql.dll incluye MariaDB Connector/C,
+enlazado estáticamente, bajo la licencia GNU LGPL 2.1.
+Código fuente de la biblioteca: https://github.com/mariadb-corporation/mariadb-connector-c
+Código fuente del driver (para volver a enlazarlo con otra versión de la
+biblioteca): https://github.com/GonzaloCN-Dev/db-pro
+Texto de la licencia: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+------------------------------------------------------------------------
+Microsoft Visual C++ Redistributable
+------------------------------------------------------------------------
+Las bibliotecas de ejecución de Visual C++ se distribuyen junto a la
+aplicación según los términos de redistribución de Microsoft.

@@ -1,0 +1,27 @@
+#pragma code_page(65001)
+
+1 ICON "@CMAKE_SOURCE_DIR@/assets/icon.ico"
+
+1 VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "0c0a04b0"
+        BEGIN
+            VALUE "CompanyName", "Gonzalo Cruz Núñez"
+            VALUE "FileDescription", "Db Pro - Native universal database studio"
+            VALUE "FileVersion", "@PROJECT_VERSION@"
+            VALUE "InternalName", "DbPro"
+            VALUE "LegalCopyright", "© 2026 Gonzalo Cruz Núñez"
+            VALUE "OriginalFilename", "DbPro.exe"
+            VALUE "ProductName", "Db Pro"
+            VALUE "ProductVersion", "@PROJECT_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0c0a, 1200
+    END
+END

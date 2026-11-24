@@ -168,7 +168,7 @@ const Entry kTable[] = {
 
     // about
     { "about.title", "About Db Pro", "Acerca de Db Pro" },
-    { "about.text", "Version {0}\n{1}\n\nNo telemetry. Passwords stay in Windows Credential Manager.", "Versión {0}\n{1}\n\nSin telemetría. Las contraseñas permanecen en el Administrador de credenciales." },
+    { "about.text", "Version {0}\n{1}\n\nNo telemetry. Passwords stay in Windows Credential Manager.\n\nMade with Slint (slint.dev)", "Versión {0}\n{1}\n\nSin telemetría. Las contraseñas permanecen en el Administrador de credenciales.\n\nHecho con Slint (slint.dev)" },
 };
 
 std::string g_lang = "en";
