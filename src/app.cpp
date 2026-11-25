@@ -1,4 +1,4 @@
-﻿// Application controller: owns the Slint window, the active connection and every worker thread.
+// Application controller: owns the Slint window, the active connection and every worker thread.
 // The UI thread never blocks: connector calls run on worker threads and post their results back with
 // slint::invoke_from_event_loop. Each data request carries a generation number; late answers are dropped.
 #include <algorithm>
@@ -29,6 +29,7 @@
 #include "i18n.h"
 #include "platform.h"
 #include "selftest.h"
+#include "column_layouts.h"
 #include "query_history.h"
 #include "store.h"
 #include "updater.h"
@@ -211,6 +212,7 @@ public:
     {
         store_.load();
         history_.load();
+        layouts_.load();
         i18n::set_language(store_.settings.lang);
         ui_->global<Theme>().set_dark(store_.settings.dark);
         page_size_ = std::clamp(store_.settings.page_size, 10, 5000);
@@ -226,6 +228,7 @@ public:
         B().set_tree(tree_model_);
         B().set_tabs(tabs_model_);
         B().set_hist_rows(hist_model_);
+        B().set_colcfg_rows(colcfg_model_);
         B().set_sql_tabs(sql_tabs_model_);
         init_sql_tabs();
         B().set_mon_metrics(mon_metrics_model_);
@@ -294,6 +297,9 @@ private:
         if (condition == "sql-text-empty") return U(B().get_sql_text()).empty();
         if (condition == "sql-result-empty") return sql_out_.columns.empty();
         if (condition.rfind("sql-text-has=", 0) == 0) return U(B().get_sql_text()).find(condition.substr(13)) != std::string::npos;
+        if (condition == "columns-open") return B().get_colcfg_open();
+        if (number_after("columns-hidden=", expected)) { int n = 0; for (bool h : view_.hidden) n += h ? 1 : 0; return n == expected; }
+        if (number_after("columns-first=", expected)) { return !view_.order.empty() && (int)view_.order[0] == expected; }
         if (condition == "sql-idle") return !sql_running_;
         if (condition == "sql-ok") return !B().get_sql_error() && !sql_running_ && !sql_out_.columns.empty();
         if (number_after("history-entries=", expected)) return (int)history_.entries().size() == expected;
@@ -533,6 +539,7 @@ private:
         b.on_cancel_sql([this] { if (sql_cancel_) sql_cancel_->cancel(); });
         b.on_sql_column_resized([this](int c, float w) { resize_column(sql_widths_, c, w, true); });
         wire_history(b);
+        wire_columns(b);
         b.on_open_sql_file([this] { open_sql_file(); });
         b.on_save_sql_file([this](slint::SharedString t) { save_sql_file(U(t)); });
         b.on_export_sql_result([this] { open_export(true); });
@@ -1216,6 +1223,7 @@ private:
         filter_timer_.stop();
         loading_ = false;
         B().set_loading(false);
+        apply_layout();
         B().set_has_table(true);
         B().set_table_title(S(meta_.table.label()));
         B().set_query_text(S(t.query_text));
@@ -1367,6 +1375,7 @@ private:
                         widths_.clear();
                         for (auto &col : meta_.columns) widths_.push_back(default_width(col));
                         editable_ = meta_.edit.editable && caps_.edit && !profile_.read_only && !meta_.is_view;
+                        apply_layout();
                         B().set_has_table(true);
                         B().set_table_title(S(meta_.table.label()));
                         B().set_sel_row(-1);
@@ -1583,10 +1592,10 @@ private:
         ColumnUi u {};
         u.name = S(col.name);
         u.type_label = S(type_class_label(col));
-        double x = 0;
-        for (size_t k = 0; k < ci; ++k) x += widths_[k];
-        u.x = (float)x;
-        u.width = (float)widths_[ci];
+        ensure_view();
+        u.hidden = view_.hidden[ci];
+        u.x = (float)col_x(ci);
+        u.width = u.hidden ? 0.0f : (float)widths_[ci];
         u.pk = col.is_pk();
         u.sort = 0;
         u.sort_order = 0;
@@ -1606,13 +1615,104 @@ private:
         return u;
     }
 
+    // ---- column layout (hide / reorder), stored by column name per connection and table
+    std::vector<std::string> column_names() const
+    {
+        std::vector<std::string> n;
+        for (auto &c : meta_.columns) n.push_back(c.name);
+        return n;
+    }
+
+    std::string layout_key() const
+    {
+        return ColumnLayouts::make_key(profile_.id, meta_.table.database, meta_.table.schema, meta_.table.name);
+    }
+
+    void apply_layout() { view_ = resolve_layout(layouts_.get(layout_key()), column_names()); }
+
+    void ensure_view()
+    {
+        if (view_.order.size() != meta_.columns.size() || view_.hidden.size() != meta_.columns.size()) apply_layout();
+    }
+
+    double col_x(size_t ci)
+    {
+        ensure_view();
+        double x = 0;
+        for (size_t p = 0; p < view_.order.size(); ++p) {
+            size_t k = view_.order[p];
+            if (k == ci) break;
+            if (!view_.hidden[k]) x += widths_[k];
+        }
+        return x;
+    }
+
+    void rebuild_colcfg()
+    {
+        ensure_view();
+        std::vector<ColumnCfgUi> rows;
+        for (size_t p = 0; p < view_.order.size(); ++p) {
+            ColumnCfgUi u {};
+            size_t k = view_.order[p];
+            u.name = S(meta_.columns[k].name);
+            u.shown = !view_.hidden[k];
+            u.first = p == 0;
+            u.last = p + 1 == view_.order.size();
+            rows.push_back(u);
+        }
+        colcfg_model_->set_vector(rows);
+    }
+
+    void store_view()
+    {
+        layouts_.set(layout_key(), layout_from_view(view_, column_names()));
+        layouts_.save();
+        refresh_columns();
+        rebuild_colcfg();
+    }
+
+    void wire_columns(const Backend &b)
+    {
+        b.on_colcfg_open_clicked([this] {
+            if (!table_open_) return;
+            rebuild_colcfg();
+            B().set_colcfg_open(true);
+        });
+        b.on_colcfg_toggle([this](int row) {
+            ensure_view();
+            if (row < 0 || (size_t)row >= view_.order.size()) return;
+            size_t k = view_.order[(size_t)row];
+            if (!view_.hidden[k]) {
+                size_t shown = 0;
+                for (bool h : view_.hidden) shown += h ? 0 : 1;
+                if (shown <= 1) { set_status(tr("cols.keep-one")); rebuild_colcfg(); return; }
+                if (k < filters_.size() && (filters_[k].active || !filters_[k].text.empty())) { set_status(tr("cols.has-filter")); rebuild_colcfg(); return; }
+            }
+            view_.hidden[k] = !view_.hidden[k];
+            store_view();
+        });
+        b.on_colcfg_move([this](int row, int dir) {
+            ensure_view();
+            int to = row + dir;
+            if (row < 0 || to < 0 || (size_t)row >= view_.order.size() || (size_t)to >= view_.order.size()) return;
+            std::swap(view_.order[(size_t)row], view_.order[(size_t)to]);
+            store_view();
+        });
+        b.on_colcfg_reset([this] {
+            layouts_.set(layout_key(), {});
+            layouts_.save();
+            apply_layout();
+            refresh_columns();
+            rebuild_colcfg();
+        });
+    }
     void refresh_columns()
     {
         std::vector<ColumnUi> v;
         double total = 0;
         for (size_t ci = 0; ci < meta_.columns.size(); ++ci) {
             v.push_back(make_col_ui(ci));
-            total += widths_[ci];
+            if (!view_.hidden[ci]) total += widths_[ci];
         }
         columns_model_->set_vector(v);
         B().set_content_width((float)total);
@@ -1627,7 +1727,8 @@ private:
     {
         if (ci < 0 || ci >= (int)widths.size()) return;
         widths[ci] = std::max(48.0f, w);
-        auto &model = sql ? sql_columns_model_ : columns_model_;
+        if (!sql) { refresh_columns(); return; }
+        auto &model = sql_columns_model_;
         double x = 0;
         for (int k = 0; k < (int)widths.size() && k < (int)model->row_count(); ++k) {
             ColumnUi u = *model->row_data(k);
@@ -1835,9 +1936,19 @@ private:
         int rows = (int)visible_rows(), cols = (int)meta_.columns.size();
         if (rows == 0 || cols == 0) return;
         int r = std::clamp(B().get_sel_row() + dr, 0, rows - 1);
-        int c = std::clamp(B().get_sel_col() + dc, 0, cols - 1);
+        ensure_view();
+        int c = B().get_sel_col();
+        if (c < 0 || c >= cols || view_.hidden[(size_t)c]) {
+            c = -1;
+            for (size_t p = 0; p < view_.order.size() && c < 0; ++p) if (!view_.hidden[view_.order[p]]) c = (int)view_.order[p];
+        } else if (dc != 0) {
+            int pos = 0;
+            for (size_t p = 0; p < view_.order.size(); ++p) if ((int)view_.order[p] == c) pos = (int)p;
+            int step = dc > 0 ? 1 : -1;
+            for (int q = pos + step; q >= 0 && q < cols; q += step)
+                if (!view_.hidden[view_.order[(size_t)q]]) { c = (int)view_.order[(size_t)q]; break; }
+        }
         if (B().get_sel_row() < 0) r = 0;
-        if (B().get_sel_col() < 0) c = 0;
         B().set_sel_row(r);
         B().set_sel_col(c);
         scroll_to_row(r);
@@ -2954,6 +3065,9 @@ private:
     slint::ComponentHandle<AppWindow> ui_;
     Store store_;
     QueryHistory history_;
+    ColumnLayouts layouts_;
+    ColumnView view_;
+    std::shared_ptr<slint::VectorModel<ColumnCfgUi>> colcfg_model_ = std::make_shared<slint::VectorModel<ColumnCfgUi>>();
     std::optional<std::string> saved_clipboard_;
     std::vector<size_t> hist_index_;
     std::string hist_needle_, sql_last_text_;

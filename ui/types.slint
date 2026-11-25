@@ -12,6 +12,14 @@ export struct ColumnUi {
     filter-tip: string,
     align-right: bool,
     filterable: bool,
+    hidden: bool,
+}
+
+export struct ColumnCfgUi {
+    name: string,
+    shown: bool,
+    first: bool,
+    last: bool,
 }
 
 export struct CellUi {

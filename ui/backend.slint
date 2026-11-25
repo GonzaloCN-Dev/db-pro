@@ -1,4 +1,4 @@
-﻿import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi, HistoryUi } from "types.slint";
+﻿import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi, HistoryUi, ColumnCfgUi } from "types.slint";
 
 // Everything the UI shows or asks for goes through this global; src/app.cpp implements it.
 export global Backend {
@@ -166,6 +166,12 @@ export global Backend {
     callback column-resized(int, length);
     callback page-size-picked(int);
     callback toggle-query();
+    in-out property <bool> colcfg-open: false;
+    in property <[ColumnCfgUi]> colcfg-rows;
+    callback colcfg-open-clicked();
+    callback colcfg-toggle(int);
+    callback colcfg-move(int, int);
+    callback colcfg-reset();
     callback open-detail();
 
     // ---- SQL editor

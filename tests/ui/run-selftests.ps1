@@ -67,3 +67,4 @@ Invoke-UiScenario "connection-error" "connection-error.txt" $true
 Invoke-UiScenario "sql-history" "sql-history.txt"
 Invoke-UiScenario "sql-selection" "sql-selection.txt"
 Invoke-UiScenario "sql-tabs" "sql-tabs.txt"
+Invoke-UiScenario "columns" "columns.txt"

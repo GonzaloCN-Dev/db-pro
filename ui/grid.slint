@@ -237,6 +237,7 @@ export component DataGrid inherits Rectangle {
                     }
                     for col[ci] in Backend.columns: Rectangle {
                         x: col.x + GridMetrics.gutter;
+                        visible: !col.hidden;
                         width: col.width;
                         height: parent.height;
                         background: hta.has-hover ? Theme.hover : transparent;
@@ -318,6 +319,7 @@ export component DataGrid inherits Rectangle {
                     }
                     for col[ci] in Backend.columns: Rectangle {
                         x: col.x + GridMetrics.gutter;
+                        visible: !col.hidden;
                         width: col.width;
                         height: parent.height;
                         if col.filterable: FilterBox {
@@ -369,6 +371,7 @@ export component DataGrid inherits Rectangle {
                             }
                             for cell[ci] in row.cells: GridCellView {
                                 x: Backend.columns[ci].x + GridMetrics.gutter;
+                                visible: !Backend.columns[ci].hidden;
                                 width: Backend.columns[ci].width;
                                 height: parent.height;
                                 cell: cell;

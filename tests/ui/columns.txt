@@ -1,0 +1,26 @@
+﻿# Hide and reorder columns of a table; the layout is stored per table.
+size 1360 800
+wait 400
+click 100 146
+wait-for connected 5000
+click 100 174
+wait-for table-open 5000
+assert columns-hidden=0
+click 1202 100
+wait 300
+assert columns-open
+# Hide "name"
+click 489 317
+wait 300
+assert columns-hidden=1
+# Move "email" up twice: it becomes the first column
+click 832 355
+wait 200
+click 832 317
+wait 200
+assert columns-first=2
+shot columns-changed
+click 859 610
+wait 300
+shot grid-after
+quit
