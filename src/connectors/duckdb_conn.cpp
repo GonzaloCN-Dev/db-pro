@@ -540,6 +540,7 @@ public:
         Built b = build_count(Dialect::DuckDb, m, f);
         std::lock_guard<std::mutex> g(m_);
         HookGuard hg(c, [con = con_] { duckdb_interrupt(con); });
+        throw_if_cancelled(c);
         Result res;
         run(b.sql, b.params, res);
         uint64_t n = 0;
@@ -556,6 +557,7 @@ public:
         const ColumnInfo *ci = m.column(r.column);
         std::lock_guard<std::mutex> g(m_);
         HookGuard hg(c, [con = con_] { duckdb_interrupt(con); });
+        throw_if_cancelled(c);
         Result res;
         run(b.sql, b.params, res);
         std::vector<Value> out;
@@ -574,6 +576,7 @@ public:
         Built b = build_select(Dialect::DuckDb, m, r, false);
         std::lock_guard<std::mutex> g(m_);
         HookGuard hg(c, [con = con_] { duckdb_interrupt(con); });
+        throw_if_cancelled(c);
         Result res;
         run(b.sql, b.params, res);
         std::vector<std::vector<Value>> buf;
@@ -666,6 +669,7 @@ public:
         auto t0 = Clock::now();
         std::lock_guard<std::mutex> g(m_);
         HookGuard hg(c, [con = con_] { duckdb_interrupt(con); });
+        throw_if_cancelled(c);
         QueryOutput out;
         duckdb_extracted_statements ex = nullptr;
         idx_t n = duckdb_extract_statements(con_, text.c_str(), &ex);

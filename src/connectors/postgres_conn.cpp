@@ -409,6 +409,7 @@ public:
         Built b = build_count(Dialect::Postgres, m, f);
         std::lock_guard<std::mutex> g(m_);
         Sess &s = session(m.table.database);
+        throw_if_cancelled(c);
         HookGuard hg(c, canceller(s));
         Res r = run(s, b.sql, b.params);
         if (PQntuples(r.r) < 1 || PQgetisnull(r.r, 0, 0)) return 0;
@@ -421,6 +422,7 @@ public:
         const ColumnInfo *ci = m.column(r.column);
         std::lock_guard<std::mutex> g(m_);
         Sess &s = session(m.table.database);
+        throw_if_cancelled(c);
         HookGuard hg(c, canceller(s));
         Res res = run(s, b.sql, b.params);
         std::vector<Value> out;
@@ -438,6 +440,7 @@ public:
         auto cls = result_classes(m, req);
         std::lock_guard<std::mutex> g(m_);
         Sess &s = session(m.table.database);
+        throw_if_cancelled(c);
         HookGuard hg(c, canceller(s));
         ParamSet ps(b.params);
         if (!PQsendQueryParams(s.c, b.sql.c_str(), ps.n(), nullptr, ps.ptrs.data(), nullptr, nullptr, 0)) throw_res(s.c, nullptr);

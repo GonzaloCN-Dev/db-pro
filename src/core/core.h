@@ -63,6 +63,11 @@ private:
 };
 using CancelPtr = std::shared_ptr<CancelToken>;
 
+inline void throw_if_cancelled(const CancelPtr &token)
+{
+    if (token && token->cancelled()) throw DbError(ErrKind::Cancelled, "operation cancelled");
+}
+
 struct HookGuard {
     CancelPtr t;
     HookGuard(const CancelPtr &tok, std::function<void()> h) : t(tok) { if (t) t->set_hook(std::move(h)); }

@@ -1,6 +1,6 @@
 # PROGRESS — qué funciona de verdad
 
-Última actualización: 2026-11-24. Solo se anota lo que se ha ejecutado y comprobado.
+Última actualización: 2026-11-25. Solo se anota lo que se ha ejecutado y comprobado.
 
 ## Verificado
 | Área | Evidencia |
@@ -18,10 +18,14 @@
 
 | Instalador (Inno Setup, como Rclone Lite) | `installer\build-installer.ps1` genera `dist\DbPro-Setup-0.1.0.exe` (9,7 MB). Probado: instalación silenciosa en carpeta temporal, archivos y registro correctos, la app instalada arranca y detecta el driver de `drivers\` sin descargar, desinstalación limpia (carpeta, registro y acceso directo). No probado: instalación en el Program Files con permisos de administrador, ni actualizar sobre una versión anterior |
 | Usabilidad UI | `tests\ui\run-selftests.ps1`: core, persistencia de ajustes y error de conexión pasan en perfiles/SQLite temporales. Comprueba pestañas sucias y descarte, cambio de tamaño de página, Acerca de, monitor local y persistencia tras reiniciar. |
+| Monitor más espacioso | En la vista Rendimiento se oculta el explorador lateral y se amplían las filas a 34 px. La actividad local SQLite se verificó visualmente; queda pendiente comprobar la tabla de procesos con un servidor real. |
+| Cancelación SQLite | Las pruebas verifican que SQL, recuento, valores distintos y exportación por lotes respetan un token ya cancelado; también se prueba la cancelación durante la entrega de un lote. Esto no demuestra cancelación ni tiempos de espera para otros motores. |
+| Cancelación en drivers | PostgreSQL, MySQL/MariaDB, MongoDB, DuckDB y SQL Server comprueban un token ya cancelado antes de iniciar operaciones de lectura/streaming. La compilación verifica esas rutas; la cancelación real contra servidor solo está verificada localmente en SQLite y DuckDB. |
+| Editor SQL | Puede copiar el resultado visible como TSV con encabezados, para pegarlo en una hoja de cálculo sin ejecutar una consulta adicional. |
 | Updater | Compilación y 3 tests unitarios (comparación de versiones, validación de release/checksum/URL, vector SHA-256). El flujo real de descarga, instalación y relanzamiento no se ha ejecutado. |
 | Monitor | Búsqueda, solo bloqueadas, orden asc/desc con desempate estable por ID y selección por identidad. 4 tests de modelo para filtro/orden/nulos. La tabla de sesiones no se verificó contra servidor real. |
 | Actividad local | SQLite expone uso de caché/esquema/statement y contadores `sqlite3_db_status`; DuckDB expone memoria y almacenamiento temporal vía `duckdb_memory()`. No se inventan sesiones ni se permite terminar sesiones locales. |
-| Suite | `build\dbpro_tests.exe`: **76 tests, 0 fallidos**. DuckDB 1.5.6: **91/91** integración local. |
+| Suite | `build\dbpro_tests.exe`: **79 tests, 0 fallidos**. DuckDB 1.5.6: **91/91** integración local. |
 | Diagnóstico de cierres | Formateo privacy-safe, fase thread-local y sanitización del nombre de módulo cubiertos por tests. Reproducción visual en SQLite temporal: conectar y abrir tabla sin cierre. El cierre remoto SQL Server reportado no se pudo reproducir; no se considera resuelto. |
 | Acerca de y ajustes | Autotest visual: «Derechos de autor © 2026 Gonzalo Cruz Núñez» visible permanentemente en la barra inferior y destacado en Acerca de; controles de tamaño de página, idioma, tema e intervalo visibles. |
 | Pestañas | Guardar/descartar explícito en cierre de pestaña. El autotest verifica dirty guard, descarte y cierre; no automatiza todavía el guardado efectivo ni cancelar. |

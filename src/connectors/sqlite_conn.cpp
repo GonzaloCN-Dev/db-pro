@@ -258,7 +258,7 @@ public:
         p.generated = inline_params(Dialect::Sqlite, b.sql, b.params);
         std::lock_guard<std::mutex> g(m_);
         HookGuard hg(c, [db = db_] { sqlite3_interrupt(db); });
-        if (c && c->cancelled()) throw DbError(ErrKind::Cancelled, "operation cancelled");
+        throw_if_cancelled(c);
         Stmt s(db_, b.sql);
         s.bind(b.params);
         std::vector<const ColumnInfo *> cols = result_cols(m, req);
@@ -282,6 +282,7 @@ public:
         Built b = build_count(Dialect::Sqlite, m, f);
         std::lock_guard<std::mutex> g(m_);
         HookGuard hg(c, [db = db_] { sqlite3_interrupt(db); });
+        throw_if_cancelled(c);
         Stmt s(db_, b.sql);
         s.bind(b.params);
         if (!s.step()) return 0;
@@ -294,6 +295,7 @@ public:
         const ColumnInfo *ci = m.column(r.column);
         std::lock_guard<std::mutex> g(m_);
         HookGuard hg(c, [db = db_] { sqlite3_interrupt(db); });
+        throw_if_cancelled(c);
         Stmt s(db_, b.sql);
         s.bind(b.params);
         std::vector<Value> out;
@@ -310,6 +312,7 @@ public:
         Built b = build_select(Dialect::Sqlite, m, r, false);
         std::lock_guard<std::mutex> g(m_);
         HookGuard hg(c, [db = db_] { sqlite3_interrupt(db); });
+        throw_if_cancelled(c);
         Stmt s(db_, b.sql);
         s.bind(b.params);
         std::vector<const ColumnInfo *> cols = result_cols(m, req);
@@ -406,11 +409,13 @@ public:
         auto t0 = Clock::now();
         std::lock_guard<std::mutex> g(m_);
         HookGuard hg(c, [db = db_] { sqlite3_interrupt(db); });
+        throw_if_cancelled(c);
         QueryOutput out;
         const char *tail = text.c_str();
         const char *end = tail + text.size();
         int stmts = 0;
         while (tail < end) {
+            if (c && c->cancelled()) throw DbError(ErrKind::Cancelled, "operation cancelled");
             sqlite3_stmt *raw = nullptr;
             if (sqlite3_prepare_v2(db_, tail, (int)(end - tail), &raw, &tail) != SQLITE_OK)
                 throw DbError(ErrKind::Query, sqlite3_errmsg(db_));

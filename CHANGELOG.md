@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 0.2.4
+- La vista Rendimiento aprovecha todo el ancho de la ventana y sus filas de procesos son más altas para facilitar la lectura.
+- El editor SQL permite copiar su resultado al portapapeles como TSV, además de exportarlo.
+- Los tokens de cancelación ya solicitados se respetan antes de iniciar operaciones de lectura/streaming en SQLite, DuckDB, PostgreSQL, MySQL/MariaDB, MongoDB y SQL Server.
+- SQLite prueba que las operaciones precanceladas no devuelven ni modifican datos; DuckDB 1.5.6 pasa 91/91 pruebas de integración local, incluida cancelación real.
+
 ## 0.2.3
 - El nombre del autor y los derechos de autor quedan visibles permanentemente en la barra inferior y destacados en «Acerca de»: «Derechos de autor © 2026 Gonzalo Cruz Núñez».
 

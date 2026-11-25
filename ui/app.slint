@@ -371,6 +371,7 @@ component SqlView inherits Rectangle {
                 Btn { text: Backend.t("sql.open"); icon: "\u{E8E5}"; kind: "ghost"; compact: true; clicked => { Backend.open-sql-file(); } }
                 Btn { text: Backend.t("sql.save"); icon: "\u{E74E}"; kind: "ghost"; compact: true; clicked => { Backend.save-sql-file(sql-input.text); } }
                 Rectangle { }
+                Btn { text: Backend.t("sql.copy-result"); icon: "\u{E8B3}"; kind: "ghost"; compact: true; enabled: Backend.sql-rows.length > 0; clicked => { Backend.copy-sql-result(); } }
                 Btn { text: Backend.t("export"); icon: "\u{E896}"; kind: "ghost"; compact: true; enabled: Backend.sql-rows.length > 0; clicked => { Backend.export-sql-result(); } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
@@ -538,7 +539,7 @@ component MonitorView inherits Rectangle {
                 padding-left: 8px;
                 padding-right: 8px;
                 Rectangle {
-                    height: 28px;
+                    height: 34px;
                     background: Theme.surface2;
                     for col[ci] in Backend.mon-columns: Rectangle {
                         x: col.x * mon-table.scale;
@@ -553,7 +554,7 @@ component MonitorView inherits Rectangle {
                 ListView {
                     vertical-stretch: 1;
                     for row[ri] in Backend.mon-rows: Rectangle {
-                        height: 26px;
+                        height: 34px;
                         background: Backend.mon-sel == ri ? Theme.selection : row.state == 1 ? Theme.danger-soft : row.state == 2 ? Theme.warning.with-alpha(0.18) : mod(ri, 2) == 1 ? Theme.surface2.with-alpha(0.45) : transparent;
                         for cell[ci] in row.cells: Rectangle {
                             x: Backend.mon-columns[ci].x * mon-table.scale;
@@ -740,7 +741,7 @@ export component AppWindow inherits Window {
     VerticalLayout {
         TopBar { }
         HorizontalLayout {
-            Explorer { width: 270px; }
+            if Backend.view != 2: Explorer { width: 270px; }
             Rectangle {
                 horizontal-stretch: 1;
                 if Backend.view == 0: DataView { }

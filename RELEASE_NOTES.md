@@ -1,3 +1,26 @@
+# Db Pro 0.2.4
+
+## Mejoras
+
+- **Rendimiento:** la tabla de procesos usa todo el ancho disponible y filas de 34 px para que estados y consultas sean más legibles.
+- **Editor SQL:** botón «Copiar resultado», que copia encabezados y filas como TSV compatible con hojas de cálculo.
+- **Cancelación:** una cancelación ya solicitada se comprueba antes de iniciar operaciones de lectura y streaming para todos los conectores implementados. SQLite tiene pruebas específicas; DuckDB se verificó con cancelación de una consulta larga.
+
+## Verificación
+
+- CTest y suite unitaria: 79 pruebas, 0 fallidas.
+- Autotest visual: core, persistencia de ajustes y error de conexión.
+- DuckDB 1.5.6: 91/91 integración local, incluida cancelación.
+- No se usó MariaDB/XAMPP. PostgreSQL, MySQL/MariaDB, MongoDB y SQL Server no se volvieron a verificar contra servidor en esta publicación; SQL Server sigue solo compilado.
+
+## Descargas
+
+`DbPro-Setup-0.2.4.exe` y `DbPro-Portable-0.2.4.zip`. El instalador sigue sin firma Authenticode por no haber certificado disponible.
+
+Código y artefactos: https://github.com/GonzaloCN-Dev/db-pro/releases/tag/v0.2.4
+
+---
+
 # Db Pro 0.2.3
 
 El crédito de autoría ahora queda visible en todo momento en la barra inferior y más destacado en «Acerca de»: **Derechos de autor © 2026 Gonzalo Cruz Núñez**.

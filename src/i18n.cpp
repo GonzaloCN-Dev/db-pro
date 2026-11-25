@@ -176,6 +176,8 @@ const Entry kTable[] = {
     { "sql.confirm-prod", "This is a PRODUCTION connection and the statement may modify data. Run it?", "Es una conexión de PRODUCCIÓN y la sentencia puede modificar datos. ¿Ejecutarla?" },
     { "sql.run-anyway", "Run", "Ejecutar" },
     { "sql.need-connection", "Connect to a database first.", "Conecta primero a una base de datos." },
+    { "sql.copy-result", "Copy result", "Copiar resultado" },
+    { "sql.copy-empty", "There is no query result to copy.", "No hay resultado de consulta para copiar." },
 
     // about
     { "about.title", "About Db Pro", "Acerca de Db Pro" },

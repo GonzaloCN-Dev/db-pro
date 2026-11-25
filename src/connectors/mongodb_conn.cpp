@@ -801,6 +801,7 @@ public:
             ao.comment(BVal(bt::b_string { tag }));
             auto client = pool().acquire();
             HookGuard hg(c, canceller(tag));
+            throw_if_cancelled(c);
             uint64_t n = 0;
             for (auto &d : (*client)[m.table.database][m.table.name].aggregate(pl, ao)) {
                 auto e = d["n"];
@@ -828,6 +829,7 @@ public:
             ao.allow_disk_use(true);
             auto client = pool().acquire();
             HookGuard hg(c, canceller(tag));
+            throw_if_cancelled(c);
             std::vector<Value> out;
             for (auto &d : (*client)[m.table.database][m.table.name].aggregate(pl, ao)) out.push_back(to_value(d["_id"]));
             return out;
@@ -850,6 +852,7 @@ public:
             fo.comment(tag);
             auto client = pool().acquire();
             HookGuard hg(c, canceller(tag));
+            throw_if_cancelled(c);
             auto cur = (*client)[m.table.database][m.table.name].find(filter.view(), fo);
             std::vector<std::vector<Value>> buf;
             uint64_t total = 0;

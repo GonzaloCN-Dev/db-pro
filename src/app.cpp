@@ -494,6 +494,7 @@ private:
         b.on_open_sql_file([this] { open_sql_file(); });
         b.on_save_sql_file([this](slint::SharedString t) { save_sql_file(U(t)); });
         b.on_export_sql_result([this] { open_export(true); });
+        b.on_copy_sql_result([this] { copy_sql_result(); });
 
         // dialogs
         b.on_dlg_result([this](int r) {
@@ -2599,6 +2600,30 @@ private:
         if (!p) return;
         std::ofstream f(std::filesystem::u8path(*p), std::ios::binary | std::ios::trunc);
         f << text;
+    }
+
+    void copy_sql_result()
+    {
+        if (sql_out_.rows.empty()) {
+            set_status(tr("sql.copy-empty"));
+            return;
+        }
+        std::string text;
+        for (size_t c = 0; c < sql_out_.columns.size(); ++c) {
+            if (c) text += '\t';
+            text += sql_out_.columns[c];
+        }
+        text += "\r\n";
+        for (const auto &row : sql_out_.rows) {
+            for (size_t c = 0; c < row.size(); ++c) {
+                if (c) text += '\t';
+                std::string cell = row[c].is_null() ? std::string() : row[c].display();
+                for (char &ch : cell) if (ch == '\t' || ch == '\r' || ch == '\n') ch = ' ';
+                text += cell;
+            }
+            text += "\r\n";
+        }
+        if (platform::clipboard_set(text)) set_status(tr("status.copied"));
     }
 
 private:

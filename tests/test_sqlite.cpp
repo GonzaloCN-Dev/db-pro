@@ -31,6 +31,52 @@ static void seed(Connector &c, int rows)
 
 static TableMeta meta_of(Connector &c) { return c.table_meta({ "main", "", "expedientes" }); }
 
+TEST(sqlite_pre_cancelled_sql_does_not_execute)
+{
+    auto c = connect_sqlite(tmp_db("precancel"), false);
+    c->execute("CREATE TABLE t (id INTEGER)", 10, nullptr);
+    auto token = std::make_shared<CancelToken>();
+    token->cancel();
+    bool cancelled = false;
+    try { c->execute("INSERT INTO t VALUES (1)", 10, token); }
+    catch (const DbError &e) { cancelled = e.kind == ErrKind::Cancelled; }
+    CHECK(cancelled);
+    CHECK_EQ(c->execute("SELECT count(*) FROM t", 10, nullptr).rows[0][0].i, 0);
+}
+
+TEST(sqlite_pre_cancelled_read_operations_do_not_return_data)
+{
+    auto c = connect_sqlite(tmp_db("precancel_reads"), false);
+    seed(*c, 10);
+    TableMeta m = meta_of(*c);
+    auto token = std::make_shared<CancelToken>();
+    token->cancel();
+    int cancelled = 0;
+    try { c->count(m, {}, token); } catch (const DbError &e) { if (e.kind == ErrKind::Cancelled) ++cancelled; }
+    DistinctRequest d; d.column = "entidad";
+    try { c->distinct_values(m, d, token); } catch (const DbError &e) { if (e.kind == ErrKind::Cancelled) ++cancelled; }
+    int batches = 0;
+    try { c->stream_rows(m, {}, 2, [&](auto &) { ++batches; return true; }, token); }
+    catch (const DbError &e) { if (e.kind == ErrKind::Cancelled) ++cancelled; }
+    CHECK_EQ(cancelled, 3);
+    CHECK_EQ(batches, 0);
+}
+
+TEST(sqlite_stream_cancelled_in_callback_stops_before_next_batch)
+{
+    auto c = connect_sqlite(tmp_db("cancel_stream"), false);
+    seed(*c, 10);
+    TableMeta m = meta_of(*c);
+    auto token = std::make_shared<CancelToken>();
+    int batches = 0;
+    bool cancelled = false;
+    try {
+        c->stream_rows(m, {}, 2, [&](auto &) { ++batches; token->cancel(); return true; }, token);
+    } catch (const DbError &e) { cancelled = e.kind == ErrKind::Cancelled; }
+    CHECK(cancelled);
+    CHECK_EQ(batches, 1);
+}
+
 TEST(sqlite_metadata_and_row_identity)
 {
     auto c = connect_sqlite(tmp_db("meta"), false);

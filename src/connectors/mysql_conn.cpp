@@ -496,6 +496,7 @@ public:
         std::lock_guard<std::mutex> g(m_);
         ensure();
         HookGuard hg(c, killer());
+        throw_if_cancelled(c);
         PStmt s(my_, b.sql);
         s.bind_params(b.params);
         s.execute();
@@ -514,6 +515,7 @@ public:
         std::lock_guard<std::mutex> g(m_);
         ensure();
         HookGuard hg(c, killer());
+        throw_if_cancelled(c);
         PStmt s(my_, b.sql);
         s.bind_params(b.params);
         s.execute();
@@ -533,6 +535,7 @@ public:
         std::lock_guard<std::mutex> g(m_);
         ensure();
         HookGuard hg(c, killer());
+        throw_if_cancelled(c);
         PStmt s(my_, b.sql);
         Abandon ab { this }; // destroyed first: an unfinished cursor must not be drained row by row
         s.bind_params(b.params);

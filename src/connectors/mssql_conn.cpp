@@ -581,6 +581,7 @@ public:
         ensure();
         Stmt s(dbc_);
         HookGuard hg(c, s.canceller());
+        throw_if_cancelled(c);
         uint64_t n = 0;
         guarded([&] {
             s.run(b.sql, b.params);
@@ -600,6 +601,7 @@ public:
         ensure();
         Stmt s(dbc_);
         HookGuard hg(c, s.canceller());
+        throw_if_cancelled(c);
         std::vector<Value> out;
         guarded([&] {
             s.run(b.sql, b.params);
@@ -619,6 +621,7 @@ public:
         ensure();
         Stmt s(dbc_);
         HookGuard hg(c, s.canceller());
+        throw_if_cancelled(c);
         std::vector<std::vector<Value>> buf;
         uint64_t total = 0;
         guarded([&] {

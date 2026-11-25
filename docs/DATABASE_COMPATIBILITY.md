@@ -3,7 +3,7 @@
 Fuente de verdad del código: `src/core/engines.cpp`. Este documento recoge también lo pedido que **aún no existe**.
 Estados: **Probado** (integración contra un servidor real de ese motor), **Experimental** (protocolo compatible o sin probar), **Planificado** (sin código todavía), **Excluido**.
 
-## En la aplicación hoy (0.2.2 en desarrollo)
+## En la aplicación hoy (0.2.4 en desarrollo)
 
 | Motor | Vía | Estado |
 |---|---|---|
