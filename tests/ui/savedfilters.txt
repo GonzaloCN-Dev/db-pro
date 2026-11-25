@@ -1,0 +1,30 @@
+﻿size 1360 800
+wait 400
+click 100 146
+wait-for connected 5000
+click 100 174
+wait-for table-open 5000
+click 1005 184
+type Chile
+wait 900
+assert filter-count=1
+click 1167 100
+wait 300
+click 615 293
+type Solo Chile
+wait 200
+click 858 293
+wait 300
+assert saved-filters=1
+shot sf-saved
+click 889 593
+wait 200
+click 292 184
+wait 900
+assert filter-count=0
+click 1167 100
+wait 300
+click 600 347
+wait 900
+assert filter-count=1
+quit

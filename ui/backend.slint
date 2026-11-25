@@ -1,4 +1,4 @@
-import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi, HistoryUi, ColumnCfgUi } from "types.slint";
+import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi, HistoryUi, ColumnCfgUi, SavedFilterUi } from "types.slint";
 
 // Everything the UI shows or asks for goes through this global; src/app.cpp implements it.
 export global Backend {
@@ -166,6 +166,13 @@ export global Backend {
     callback column-resized(int, length);
     callback page-size-picked(int);
     callback toggle-query();
+    in-out property <bool> sf-open: false;
+    in property <[SavedFilterUi]> sf-rows;
+    in property <int> sf-active-count;
+    callback sf-open-clicked();
+    callback sf-save(string);
+    callback sf-use(int);
+    callback sf-delete(int);
     in-out property <bool> copyas-open: false;
     in-out property <int> copyas-format: 0;
     callback copyas-do(int);

@@ -30,6 +30,7 @@
 #include "platform.h"
 #include "selftest.h"
 #include "column_layouts.h"
+#include "saved_filters.h"
 #include "core/copyformat.h"
 #include "core/paste.h"
 #include "core/engines.h"
@@ -216,6 +217,7 @@ public:
         store_.load();
         history_.load();
         layouts_.load();
+        saved_filters_.load();
         i18n::set_language(store_.settings.lang);
         ui_->global<Theme>().set_dark(store_.settings.dark);
         page_size_ = std::clamp(store_.settings.page_size, 10, 5000);
@@ -232,6 +234,7 @@ public:
         B().set_tabs(tabs_model_);
         B().set_hist_rows(hist_model_);
         B().set_colcfg_rows(colcfg_model_);
+        B().set_sf_rows(sf_model_);
         B().set_sql_tabs(sql_tabs_model_);
         init_sql_tabs();
         B().set_mon_metrics(mon_metrics_model_);
@@ -303,6 +306,9 @@ private:
         if (condition == "columns-open") return B().get_colcfg_open();
         if (number_after("columns-hidden=", expected)) { int n = 0; for (bool h : view_.hidden) n += h ? 1 : 0; return n == expected; }
         if (number_after("columns-first=", expected)) { return !view_.order.empty() && (int)view_.order[0] == expected; }
+        if (condition == "sf-open") return B().get_sf_open();
+        if (number_after("saved-filters=", expected)) return (int)saved_filters_.list(layout_key()).size() == expected;
+        if (number_after("filter-count=", expected)) return B().get_filter_count() == expected;
         if (condition == "paste-open") return B().get_paste_open();
         if (condition == "copyas-open") return B().get_copyas_open();
         if (number_after("paste-rows=", expected)) return (int)paste_rows_.size() == expected;
@@ -547,6 +553,7 @@ private:
         wire_history(b);
         wire_columns(b);
         wire_clipboard(b);
+        wire_saved_filters(b);
         b.on_open_sql_file([this] { open_sql_file(); });
         b.on_save_sql_file([this](slint::SharedString t) { save_sql_file(U(t)); });
         b.on_export_sql_result([this] { open_export(true); });
@@ -1734,6 +1741,82 @@ private:
         b.on_copyas_do([this](int scope) { copy_as(scope); });
         b.on_paste_request([this] { paste_request(); });
         b.on_paste_confirm([this] { paste_confirm(); });
+    }
+    // ---- saved filters (per connection and table); only box state is stored, never SQL
+    void rebuild_saved_filters()
+    {
+        std::vector<SavedFilterUi> rows;
+        for (auto &f : saved_filters_.list(layout_key())) {
+            SavedFilterUi u {};
+            u.name = S(f.name);
+            std::string sum;
+            for (auto &i : f.items) sum += (sum.empty() ? "" : "  ·  ") + i.column + " " + i.op + (i.text.empty() ? "" : " " + i.text);
+            u.summary = S(sum);
+            rows.push_back(u);
+        }
+        sf_model_->set_vector(rows);
+        int n = 0;
+        for (auto &f : filters_) n += f.active ? 1 : 0;
+        B().set_sf_active_count(n);
+    }
+
+    void wire_saved_filters(const Backend &b)
+    {
+        b.on_sf_open_clicked([this] {
+            if (!table_open_) return;
+            evaluate_filters();
+            rebuild_saved_filters();
+            B().set_sf_open(true);
+        });
+        b.on_sf_save([this](slint::SharedString name) {
+            if (!table_open_) return;
+            evaluate_filters();
+            SavedFilter sf;
+            sf.name = U(name);
+            for (size_t ci = 0; ci < filters_.size(); ++ci) {
+                if (!filters_[ci].active) continue;
+                auto ops = col_ops(ci);
+                Op op = ops[std::clamp(filters_[ci].op, 0, (int)ops.size() - 1)];
+                sf.items.push_back({ meta_.columns[ci].name, op_label(op), filters_[ci].text });
+            }
+            if (sf.items.empty()) { set_status(tr("sf.nothing")); return; }
+            if (!saved_filters_.put(layout_key(), sf)) { set_status(tr("sf.cannot-save")); return; }
+            saved_filters_.save();
+            rebuild_saved_filters();
+            set_status(tr("sf.saved"));
+        });
+        b.on_sf_use([this](int row) {
+            const auto &list = saved_filters_.list(layout_key());
+            if (!table_open_ || row < 0 || (size_t)row >= list.size()) return;
+            if (!changes_.empty()) { set_status(tr("unsaved.title")); return; }
+            SavedFilter sf = list[(size_t)row];
+            for (auto &f : filters_) f = ColFilter();
+            int skipped = 0;
+            for (auto &it : sf.items) {
+                bool done = false;
+                for (size_t ci = 0; ci < meta_.columns.size() && !done; ++ci) {
+                    if (meta_.columns[ci].name != it.column) continue;
+                    auto ops = col_ops(ci);
+                    for (size_t k = 0; k < ops.size(); ++k) {
+                        if (it.op != op_label(ops[k])) continue;
+                        filters_[ci].op = (int)k;
+                        filters_[ci].explicit_op = true;
+                        filters_[ci].text = it.text;
+                        done = true;
+                        break;
+                    }
+                }
+                if (!done) ++skipped;
+            }
+            B().set_sf_open(false);
+            apply_filters(true);
+            set_status(skipped ? trf("sf.applied-skipped", { sf.name, std::to_string(skipped) }) : trf("sf.applied", { sf.name }));
+        });
+        b.on_sf_delete([this](int row) {
+            saved_filters_.remove(layout_key(), (size_t)row);
+            saved_filters_.save();
+            rebuild_saved_filters();
+        });
     }
     // ---- column layout (hide / reorder), stored by column name per connection and table
     std::vector<std::string> column_names() const
@@ -3186,6 +3269,8 @@ private:
     Store store_;
     QueryHistory history_;
     ColumnLayouts layouts_;
+    SavedFilters saved_filters_;
+    std::shared_ptr<slint::VectorModel<SavedFilterUi>> sf_model_ = std::make_shared<slint::VectorModel<SavedFilterUi>>();
     std::vector<size_t> paste_targets_;
     std::vector<std::vector<Value>> paste_rows_;
     ColumnView view_;
