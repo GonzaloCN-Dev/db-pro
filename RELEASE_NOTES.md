@@ -1,3 +1,17 @@
+﻿# Db Pro 0.2.6
+
+## Mejoras
+
+- **Historial de consultas SQL:** botón «Historial» en el editor con búsqueda, favoritas, borrado de entradas y «Borrar historial» (conserva las favoritas). Solo se guarda el texto de las consultas ejecutadas con éxito, en este equipo (hasta 200 normales y 200 favoritas). Se omiten las consultas con errores y las que mencionan contraseñas o tokens (filtro conservador, también omite consultas inocentes como `select * from tokens`).
+- **Ejecutar selección:** con texto seleccionado, F5, Ctrl+Intro y «Ejecutar» lanzan solo esa parte. Como Slint no expone la selección, se copia al portapapeles y se restaura su contenido anterior; si el portapapeles está ocupado, se ejecuta todo el texto.
+- **Pestañas de consulta:** varias consultas abiertas, cada una con su texto y su resultado. Una consulta en curso termina en su pestaña aunque cambies de pestaña, y esa pestaña no se puede cerrar hasta que acabe o se cancele.
+
+## Verificación
+
+- 96 pruebas unitarias, 0 fallidas; 6 autotests visuales (core, persistencia de ajustes, error de conexión, historial, selección y pestañas), solo con SQLite.
+- No verificado: autocompletado (no implementado: Slint 1.19 no expone la posición del cursor), borrado y filtros del historial desde la interfaz, atajos de teclado de la selección, y todo contra servidores reales. El instalador sigue sin firma Authenticode.
+
+---
 # Db Pro 0.2.5
 
 ## Mejoras

@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## 0.2.6
+- Historial de consultas SQL con búsqueda y favoritas; solo guarda el texto de consultas correctas y omite las que mencionan contraseñas o tokens.
+- Ejecutar solo el texto seleccionado (F5, Ctrl+Intro o Ejecutar).
+- Pestañas de consulta con texto y resultado propios.
+- 96 pruebas unitarias y 6 autotests visuales.
 ## 0.2.5
 - Nuevo ajuste «Tiempo límite de consultas» (sin límite, 30 s, 1, 5 o 10 min) para el editor SQL y la carga de páginas. Al cumplirse se detiene la consulta y se avisa de que el servidor puede seguir terminando el trabajo.
 - Reconexión automática con esperas crecientes (1, 2, 4, 8 y 16 s) tras perder la conexión. Los cambios sin guardar se conservan y un guardado interrumpido nunca se repite solo.
