@@ -326,6 +326,40 @@ TEST(query_deadline_stops_long_query_and_is_flagged_as_timeout)
     CHECK_EQ(c->execute("SELECT 1", 1, nullptr).rows[0][0].i, (int64_t)1);
 }
 
+TEST(reconnect_backoff_grows_and_is_capped)
+{
+    CHECK_EQ(reconnect_delay_seconds(0), 1);
+    CHECK_EQ(reconnect_delay_seconds(1), 2);
+    CHECK_EQ(reconnect_delay_seconds(2), 4);
+    CHECK_EQ(reconnect_delay_seconds(4), 16);
+    CHECK_EQ(reconnect_delay_seconds(50), 16);
+    CHECK_EQ(reconnect_delay_seconds(-3), 1);
+}
+
+TEST(only_connection_errors_trigger_reconnect)
+{
+    CHECK(is_connection_lost(ErrKind::Connection));
+    CHECK(!is_connection_lost(ErrKind::Query));
+    CHECK(!is_connection_lost(ErrKind::Conflict));
+    CHECK(!is_connection_lost(ErrKind::Cancelled));
+    CHECK(!is_connection_lost(ErrKind::Timeout));
+    CHECK(!is_connection_lost(ErrKind::Validation));
+    CHECK(!is_connection_lost(ErrKind::ReadOnly));
+}
+
+TEST(closed_connection_reports_connection_error_and_new_one_works)
+{
+    std::string path = tmp_db("reconnect");
+    auto c = connect_sqlite(path, false);
+    seed(*c, 5);
+    c->close();
+    ErrKind k = ErrKind::Other;
+    try { c->activity(); } catch (const DbError &e) { k = e.kind; }
+    CHECK(is_connection_lost(k));
+    auto c2 = connect_sqlite(path, false);
+    CHECK_EQ(c2->execute("SELECT count(*) FROM expedientes", 1, nullptr).rows[0][0].i, (int64_t)5);
+}
+
 TEST(query_deadline_does_not_fire_after_finishing)
 {
     auto tok = std::make_shared<CancelToken>();

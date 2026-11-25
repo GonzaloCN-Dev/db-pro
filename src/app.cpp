@@ -810,9 +810,64 @@ private:
         });
     }
 
+    // A connection-level failure on the live connector: keep the session and the unsaved changes,
+    // retry with growing waits, and only ever swap the connector (never reload data over pending edits).
+    void on_connection_lost(const std::shared_ptr<Connector> &failed)
+    {
+        if (!connected_ || reconnecting_ || failed != conn_) return;
+        reconnecting_ = true;
+        reconnect_attempt_ = 0;
+        schedule_reconnect();
+    }
+
+    void schedule_reconnect()
+    {
+        int wait = reconnect_delay_seconds(reconnect_attempt_);
+        set_status(trf("status.reconnecting", { profile_.name, std::to_string(reconnect_attempt_ + 1), std::to_string(kReconnectAttempts), std::to_string(wait) }));
+        reconnect_timer_.start(slint::TimerMode::SingleShot, std::chrono::seconds(wait), [this] { try_reconnect(); });
+    }
+
+    void try_reconnect()
+    {
+        if (!connected_ || !reconnecting_) return;
+        uint64_t cg = conn_gen_;
+        Profile p = profile_;
+        std::string pwd = password_for(p, "");
+        spawn([this, p, pwd, cg] {
+            try {
+                std::shared_ptr<Connector> c = make_connector(p, pwd);
+                std::string info = c->server_info();
+                post([this, c, info, cg] {
+                    if (cg != conn_gen_ || !reconnecting_) { c->close(); return; }
+                    auto old = conn_;
+                    conn_ = c;
+                    caps_ = c->caps();
+                    reconnecting_ = false;
+                    spawn([old] { try { old->close(); } catch (...) {} });
+                    B().set_server_info(S(info));
+                    set_status(trf("status.reconnected", { profile_.name }) + (changes_.empty() ? "" : " — " + tr("status.reconnected-pending")));
+                    if (changes_.empty() && table_open_) load_page(true);
+                });
+            } catch (const std::exception &) {
+                post([this, cg] {
+                    if (cg != conn_gen_ || !reconnecting_) return;
+                    if (++reconnect_attempt_ >= kReconnectAttempts) {
+                        reconnecting_ = false;
+                        set_status(trf("status.reconnect-failed", { profile_.name }));
+                        notify(tr("status.disconnected"), trf("status.reconnect-failed", { profile_.name }));
+                        return;
+                    }
+                    schedule_reconnect();
+                });
+            }
+        });
+    }
+
     void disconnect()
     {
         if (!connected_) return;
+        reconnecting_ = false;
+        reconnect_timer_.stop();
         ++conn_gen_;
         if (fetch_cancel_) fetch_cancel_->cancel();
         if (sql_cancel_) sql_cancel_->cancel();
@@ -1369,13 +1424,16 @@ private:
                 std::string m = e.what();
                 bool cancelled = e.kind == ErrKind::Cancelled;
                 bool timed_out = tok->timed_out();
-                post([this, fg, m, cancelled, timed_out, limit] {
-                    if (fg != fetch_gen_) return;
-                    diagnostics::set_phase(diagnostics::Phase::Idle);
-                    loading_ = false;
-                    B().set_loading(false);
-                    set_busy();
-                    set_status(timed_out ? trf("status.timeout", { std::to_string(limit) }) : cancelled ? tr("status.cancelled") : trf("status.query-failed", { m }));
+                bool lost = is_connection_lost(e.kind);
+                post([this, fg, m, cancelled, timed_out, limit, lost, c] {
+                    if (fg == fetch_gen_) {
+                        diagnostics::set_phase(diagnostics::Phase::Idle);
+                        loading_ = false;
+                        B().set_loading(false);
+                        set_busy();
+                        set_status(timed_out ? trf("status.timeout", { std::to_string(limit) }) : cancelled ? tr("status.cancelled") : trf("status.query-failed", { m }));
+                    }
+                    if (lost) on_connection_lost(c);
                 });
             } catch (const std::exception &e) {
                 std::string m = e.what();
@@ -1933,12 +1991,14 @@ private:
             } catch (const DbError &e) {
                 std::string m = e.what();
                 bool conflict = e.kind == ErrKind::Conflict;
-                post([this, m, conflict] {
+                bool lost = is_connection_lost(e.kind);
+                post([this, m, conflict, lost, c] {
                     saving_ = false;
                     set_busy();
                     std::string msg = conflict ? tr("save.conflict") : trf("save.failed", { m });
                     set_status(msg);
                     notify(tr("save.confirm-title"), msg);
+                    if (lost) on_connection_lost(c); // changes stay pending; the save is never replayed automatically
                 });
             } catch (const std::exception &e) {
                 std::string m = e.what();
@@ -2302,11 +2362,14 @@ private:
                 });
             } catch (const std::exception &e) {
                 std::string m = e.what();
-                post([this, gen, cg, m] {
+                auto *de = dynamic_cast<const DbError *>(&e);
+                bool lost = de && is_connection_lost(de->kind);
+                post([this, gen, cg, m, lost, c] {
                     if (gen != mon_gen_ || cg != conn_gen_) return;
                     mon_busy_ = false;
                     B().set_mon_loading(false);
                     B().set_mon_error(S(monitor_error_text(m)));
+                    if (lost) on_connection_lost(c);
                 });
             }
         });
@@ -2532,7 +2595,11 @@ private:
                 std::string m = e.what();
                 bool cancelled = e.kind == ErrKind::Cancelled;
                 if (tok->timed_out()) m = trf("status.timeout", { std::to_string(limit) }), cancelled = false;
-                post([this, m, cancelled] { sql_failed(cancelled ? tr("status.cancelled") : m); });
+                bool lost = is_connection_lost(e.kind);
+                post([this, m, cancelled, lost, c] {
+                    sql_failed(cancelled ? tr("status.cancelled") : m);
+                    if (lost) on_connection_lost(c);
+                });
             } catch (const std::exception &e) {
                 std::string m = e.what();
                 post([this, m] { sql_failed(m); });
@@ -2697,6 +2764,9 @@ private:
 
     // performance monitor
     slint::Timer mon_timer_;
+    slint::Timer reconnect_timer_;
+    bool reconnecting_ = false;
+    int reconnect_attempt_ = 0;
     bool mon_busy_ = false, mon_paused_ = false, mon_have_ = false;
     uint64_t mon_gen_ = 0;
     Activity mon_activity_;

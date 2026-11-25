@@ -25,6 +25,20 @@ struct DbError : std::runtime_error {
     DbError(ErrKind k, const std::string &m) : std::runtime_error(m), kind(k) {}
 };
 
+// ---------------------------------------------------------------- reconnection
+constexpr int kReconnectAttempts = 5;
+
+// Wait before reconnect attempt `attempt` (0-based): 1, 2, 4, 8, 16 seconds.
+inline int reconnect_delay_seconds(int attempt)
+{
+    if (attempt < 0) attempt = 0;
+    if (attempt > 4) attempt = 4;
+    return 1 << attempt;
+}
+
+// Only connection-level failures justify reconnecting; query, conflict and validation errors never do.
+inline bool is_connection_lost(ErrKind k) { return k == ErrKind::Connection; }
+
 // ---------------------------------------------------------------- cancellation
 // A token is shared between the UI thread and the worker running a query.
 // The connector installs an engine-specific hook (sqlite3_interrupt, PQcancel, ...) while it blocks.
