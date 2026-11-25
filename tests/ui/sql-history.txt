@@ -1,4 +1,4 @@
-# Disposable SQLite profile. Runs queries from the SQL editor, then uses the history dialog.
+﻿# Disposable SQLite profile. Runs queries from the SQL editor, then uses the history dialog.
 size 1360 800
 wait 400
 click 100 146
@@ -60,7 +60,7 @@ key f5
 wait-for sql-ok 4000
 assert history-entries=2
 # Open the history dialog.
-click 610 62
+click 610 100
 wait 300
 assert history-open
 assert history-rows=2

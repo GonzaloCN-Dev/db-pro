@@ -176,6 +176,10 @@ export global Backend {
     in property <string> sql-message: "";
     in property <bool> sql-running: false;
     in property <bool> sql-error: false;
+    in property <[TabUi]> sql-tabs;
+    callback sql-tab-clicked(int);
+    callback sql-tab-close(int);
+    callback sql-tab-new();
     callback run-sql(string);
     callback selection-begin();
     callback run-sql-selected(string);

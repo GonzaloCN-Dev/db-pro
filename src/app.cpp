@@ -61,7 +61,7 @@ std::string cell_text(const std::string &s, size_t max = 160)
         if (c == '\r') continue;
         out += (c == '\n' || c == '\t') ? ' ' : c;
     }
-    if (n < s.size()) out += "â€¦";
+    if (n < s.size()) out += "Ã¢â‚¬Â¦";
     return out;
 }
 
@@ -226,6 +226,8 @@ public:
         B().set_tree(tree_model_);
         B().set_tabs(tabs_model_);
         B().set_hist_rows(hist_model_);
+        B().set_sql_tabs(sql_tabs_model_);
+        init_sql_tabs();
         B().set_mon_metrics(mon_metrics_model_);
         B().set_mon_columns(mon_columns_model_);
         B().set_mon_rows(mon_rows_model_);
@@ -288,6 +290,10 @@ private:
         if (condition == "history-open") return B().get_hist_open();
         if (condition == "history-closed") return !B().get_hist_open();
         if (condition == "sql-error") return B().get_sql_error();
+        if (number_after("sql-tabs=", expected)) return (int)sql_tabs_.size() == expected;
+        if (condition == "sql-text-empty") return U(B().get_sql_text()).empty();
+        if (condition == "sql-result-empty") return sql_out_.columns.empty();
+        if (condition.rfind("sql-text-has=", 0) == 0) return U(B().get_sql_text()).find(condition.substr(13)) != std::string::npos;
         if (condition == "sql-idle") return !sql_running_;
         if (condition == "sql-ok") return !B().get_sql_error() && !sql_running_ && !sql_out_.columns.empty();
         if (number_after("history-entries=", expected)) return (int)history_.entries().size() == expected;
@@ -420,6 +426,9 @@ private:
         // tabs and monitor
         b.on_tab_clicked([this](int i) { switch_tab(i); });
         b.on_tab_close([this](int i) { close_tab(i); });
+        b.on_sql_tab_clicked([this](int i) { switch_sql_tab(i); });
+        b.on_sql_tab_close([this](int i) { close_sql_tab(i); });
+        b.on_sql_tab_new([this] { new_sql_tab(); });
         b.on_view_changed([this](int v) { view_changed(v); });
         b.on_mon_select([this](int i) { monitor_select(i); });
         b.on_mon_search_changed([this](slint::SharedString s) {
@@ -817,7 +826,7 @@ private:
                     B().set_server_info(S(info));
                     reset_monitor_ui();
                     if (B().get_view() == 2) start_monitor();
-                    set_status(trf("status.connected", { p.name }) + " â€” " + info);
+                    set_status(trf("status.connected", { p.name }) + " Ã¢â‚¬â€ " + info);
                     set_busy();
                     rebuild_tree();
                 });
@@ -872,7 +881,7 @@ private:
                     reconnecting_ = false;
                     spawn([old] { try { old->close(); } catch (...) {} });
                     B().set_server_info(S(info));
-                    set_status(trf("status.reconnected", { profile_.name }) + (changes_.empty() ? "" : " â€” " + tr("status.reconnected-pending")));
+                    set_status(trf("status.reconnected", { profile_.name }) + (changes_.empty() ? "" : " Ã¢â‚¬â€ " + tr("status.reconnected-pending")));
                     if (changes_.empty() && table_open_) load_page(true);
                 });
             } catch (const std::exception &) {
@@ -1638,7 +1647,7 @@ private:
         switch (v.kind) {
         case Value::Kind::Null: c.text = S("NULL"); c.kind = 1; break;
         case Value::Kind::Default: c.text = S("DEFAULT"); c.kind = 2; break;
-        case Value::Kind::Missing: c.text = S("â€”"); c.kind = 3; break;
+        case Value::Kind::Missing: c.text = S("Ã¢â‚¬â€"); c.kind = 3; break;
         case Value::Kind::Bytes: c.text = S(cell_text(v.display())); c.kind = 4; break;
         default: c.text = S(cell_text(v.display())); c.kind = 0; break;
         }
@@ -1787,7 +1796,7 @@ private:
         menu_ops_.clear();
         menu_col_ = ci;
         if (!table_open_ || ci < 0 || ci >= (int)meta_.columns.size()) { op_menu_model_->set_vector(labels); return; }
-        labels.push_back(S("â€”  (" + tr("discard") + ")"));
+        labels.push_back(S("Ã¢â‚¬â€  (" + tr("discard") + ")"));
         menu_ops_ = col_ops(ci);
         for (Op o : menu_ops_) labels.push_back(S(std::string(op_symbol(o)) + "   " + op_label(o)));
         op_menu_model_->set_vector(labels);
@@ -2439,7 +2448,7 @@ private:
             u.label = S(label == "mon.m." + m.key ? m.label : label);
             double r = mon_rates_.count(m.key) ? mon_rates_[m.key] : m.value;
             if (r < 0) {
-                u.value = S("â€”");
+                u.value = S("Ã¢â‚¬â€");
             } else if (m.unit == "B") {
                 u.value = S(human_bytes(r) + (m.counter ? "/s" : ""));
             } else {
@@ -2523,7 +2532,7 @@ private:
         update_monitor_selection(selected_original);
 
         std::string upd = trf("mon.updated", { mon_updated_ });
-        if (mon_paused_) upd += " Â· " + tr("mon.paused");
+        if (mon_paused_) upd += " Ã‚Â· " + tr("mon.paused");
         B().set_mon_updated(S(upd));
         B().set_mon_summary(S(a.columns.empty()
                                   ? tr("mon.local-summary")
@@ -2600,6 +2609,7 @@ private:
     {
         sql_running_ = true;
         sql_last_text_ = text;
+        sql_run_id_ = sql_tabs_[sql_active_].id;
         sql_cancel_ = std::make_shared<CancelToken>();
         auto tok = sql_cancel_;
         B().set_sql_running(true);
@@ -2635,9 +2645,11 @@ private:
     {
         sql_running_ = false;
         B().set_sql_running(false);
+        set_busy();
+        SqlTab *t = sql_tab_by_id(sql_run_id_);
+        if (t && t->id != sql_tabs_[sql_active_].id) { t->msg = m; t->err = true; return; }
         B().set_sql_error(true);
         B().set_sql_message(S(m));
-        set_busy();
     }
 
     void on_sql_done(uint64_t cg, QueryOutput out)
@@ -2647,7 +2659,135 @@ private:
         set_busy();
         if (history_.record(sql_last_text_, (long long)std::time(nullptr))) history_.save();
         if (cg != conn_gen_) return;
-        sql_out_ = std::move(out);
+        std::string msg = sql_message_for(out);
+        bool refresh_table = out.columns.empty() && table_open_ && changes_.empty();
+        SqlTab *t = sql_tab_by_id(sql_run_id_);
+        if (t && t->id != sql_tabs_[sql_active_].id) {
+            t->out = std::move(out);
+            t->msg = msg;
+            t->err = false;
+        } else {
+            sql_out_ = std::move(out);
+            render_sql_out();
+            B().set_sql_error(false);
+            B().set_sql_message(S(msg));
+        }
+        if (refresh_table) load_page(true);
+    }
+
+    std::string sql_message_for(const QueryOutput &o) const
+    {
+        if (!o.message.empty() && o.columns.empty()) return o.message;
+        if (o.columns.empty() && o.affected >= 0) return trf("sql.affected", { std::to_string(o.affected), std::to_string(o.elapsed_ms) });
+        return trf("sql.done-rows", { i18n::with_commas(o.rows.size()), std::to_string(o.elapsed_ms), o.truncated ? trf("sql.truncated", { i18n::with_commas(o.rows.size()) }) : std::string() });
+    }
+
+    // ------------------------------------------------------------------ SQL query tabs
+    struct SqlTab {
+        int id = 0;
+        std::string title, text, msg;
+        bool err = false;
+        QueryOutput out;
+        std::vector<double> widths;
+    };
+
+    SqlTab *sql_tab_by_id(int id)
+    {
+        for (auto &t : sql_tabs_) if (t.id == id) return &t;
+        return nullptr;
+    }
+
+    void init_sql_tabs()
+    {
+        add_sql_tab_entry();
+        sql_active_ = 0;
+        refresh_sql_tab_model();
+    }
+
+    void add_sql_tab_entry()
+    {
+        SqlTab t;
+        t.id = ++sql_tab_seq_;
+        t.title = trf("sql.tab-title", { std::to_string(t.id) });
+        sql_tabs_.push_back(std::move(t));
+    }
+
+    void refresh_sql_tab_model()
+    {
+        std::vector<TabUi> v;
+        for (size_t k = 0; k < sql_tabs_.size(); ++k) {
+            TabUi u {};
+            u.title = S(sql_tabs_[k].title);
+            u.active = k == sql_active_;
+            v.push_back(u);
+        }
+        sql_tabs_model_->set_vector(v);
+    }
+
+    void stash_active_sql_tab()
+    {
+        SqlTab &t = sql_tabs_[sql_active_];
+        t.text = U(B().get_sql_text());
+        t.out = std::move(sql_out_);
+        t.widths = sql_widths_;
+        t.msg = U(B().get_sql_message());
+        t.err = B().get_sql_error();
+        sql_out_ = QueryOutput();
+    }
+
+    void show_sql_tab(size_t k)
+    {
+        sql_active_ = k;
+        SqlTab &t = sql_tabs_[k];
+        B().set_sql_text(S(t.text));
+        sql_out_ = std::move(t.out);
+        t.out = QueryOutput();
+        render_sql_out();
+        B().set_sql_message(S(t.msg));
+        B().set_sql_error(t.err);
+        refresh_sql_tab_model();
+    }
+
+    void switch_sql_tab(int i)
+    {
+        if (i < 0 || (size_t)i >= sql_tabs_.size() || (size_t)i == sql_active_) return;
+        stash_active_sql_tab();
+        show_sql_tab((size_t)i);
+    }
+
+    void new_sql_tab()
+    {
+        stash_active_sql_tab();
+        add_sql_tab_entry();
+        show_sql_tab(sql_tabs_.size() - 1);
+    }
+
+    void close_sql_tab(int i)
+    {
+        if (i < 0 || (size_t)i >= sql_tabs_.size()) return;
+        if (sql_running_ && sql_tabs_[(size_t)i].id == sql_run_id_) return; // let it finish or be cancelled first
+        if (sql_tabs_.size() == 1) {
+            // the last tab is cleared instead of removed
+            sql_tabs_[0].text.clear();
+            sql_tabs_[0].msg.clear();
+            sql_tabs_[0].err = false;
+            sql_out_ = QueryOutput();
+            show_sql_tab(0);
+            return;
+        }
+        bool was_active = (size_t)i == sql_active_;
+        if (!was_active) stash_active_sql_tab();
+        int keep_id = was_active ? 0 : sql_tabs_[sql_active_].id;
+        sql_tabs_.erase(sql_tabs_.begin() + i);
+        size_t next = 0;
+        if (was_active) next = std::min((size_t)i, sql_tabs_.size() - 1);
+        else for (size_t k = 0; k < sql_tabs_.size(); ++k) if (sql_tabs_[k].id == keep_id) next = k;
+        sql_out_ = QueryOutput();
+        show_sql_tab(next);
+    }
+
+    void render_sql_out()
+    {
         std::vector<ColumnUi> cols;
         sql_widths_.clear();
         double x = 0;
@@ -2682,15 +2822,6 @@ private:
             rows.push_back(row);
         }
         sql_rows_model_->set_vector(rows);
-        std::string msg;
-        if (sql_out_.columns.empty() && sql_out_.affected >= 0)
-            msg = trf("sql.affected", { std::to_string(sql_out_.affected), std::to_string(sql_out_.elapsed_ms) });
-        else
-            msg = trf("sql.done-rows", { i18n::with_commas(sql_out_.rows.size()), std::to_string(sql_out_.elapsed_ms), sql_out_.truncated ? trf("sql.truncated", { i18n::with_commas(sql_out_.rows.size()) }) : std::string() });
-        if (!sql_out_.message.empty() && sql_out_.columns.empty()) msg = sql_out_.message;
-        B().set_sql_error(false);
-        B().set_sql_message(S(msg));
-        if (sql_out_.columns.empty() && table_open_ && changes_.empty()) load_page(true);
     }
 
     // ------------------------------------------------------------------ SQL history
@@ -2893,6 +3024,10 @@ private:
 
     // sql
     bool sql_running_ = false;
+    std::vector<SqlTab> sql_tabs_;
+    size_t sql_active_ = 0;
+    int sql_tab_seq_ = 0, sql_run_id_ = 0;
+    std::shared_ptr<slint::VectorModel<TabUi>> sql_tabs_model_ = std::make_shared<slint::VectorModel<TabUi>>();
     CancelPtr sql_cancel_;
     QueryOutput sql_out_;
     std::vector<double> sql_widths_;

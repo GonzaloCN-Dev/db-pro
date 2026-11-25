@@ -262,6 +262,7 @@ component PagerBar inherits Rectangle {
 component TabItem inherits Rectangle {
     in property <TabUi> tab;
     in property <int> index;
+    in property <bool> sql: false;
     min-width: 96px;
     max-width: 200px;
     horizontal-stretch: 1;
@@ -269,9 +270,9 @@ component TabItem inherits Rectangle {
     border-radius: 7px;
     ta := TouchArea {
         mouse-cursor: MouseCursor.pointer;
-        clicked => { Backend.tab-clicked(root.index); }
+        clicked => { root.sql ? Backend.sql-tab-clicked(root.index) : Backend.tab-clicked(root.index); }
         pointer-event(e) => {
-            if (e.button == PointerEventButton.middle && e.kind == PointerEventKind.up) { Backend.tab-close(root.index); }
+            if (e.button == PointerEventButton.middle && e.kind == PointerEventKind.up) { (root.sql ? Backend.sql-tab-close(root.index) : Backend.tab-close(root.index)); }
         }
     }
     if root.tab.active: Rectangle { y: 0px; height: 2px; x: 8px; width: parent.width - 16px; background: Theme.accent; }
@@ -299,7 +300,7 @@ component TabItem inherits Rectangle {
             border-radius: 5px;
             background: cx.has-hover ? Theme.hover : transparent;
             Icon { glyph: "\u{E711}"; font-size: 9px; color: Theme.text-dim; }
-            cx := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Backend.tab-close(root.index); } }
+            cx := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.sql ? Backend.sql-tab-close(root.index) : Backend.tab-close(root.index); } }
         }
     }
 }
@@ -316,6 +317,20 @@ component TabBar inherits Rectangle {
     }
     Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
 }
+component SqlTabBar inherits Rectangle {
+    height: 38px;
+    clip: true;
+    background: Theme.surface2;
+    HorizontalLayout {
+        padding: 5px;
+        spacing: 3px;
+        for t[i] in Backend.sql-tabs: TabItem { tab: t; index: i; sql: true; }
+        IconBtn { glyph: "\u{E710}"; y: (parent.height - self.height) / 2; clicked => { Backend.sql-tab-new(); } }
+        Rectangle { horizontal-stretch: 100; }
+    }
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+}
+
 component DataView inherits Rectangle {
     background: Theme.surface;
     VerticalLayout {
@@ -361,6 +376,7 @@ component SqlView inherits Rectangle {
         }
     }
     VerticalLayout {
+        SqlTabBar { }
         Rectangle {
             height: 44px;
             HorizontalLayout {

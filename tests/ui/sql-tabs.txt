@@ -1,0 +1,33 @@
+﻿# Query tabs keep their own text and result.
+size 1360 800
+wait 400
+click 100 146
+wait-for connected 5000
+click 244 24
+wait 300
+assert sql-tabs=1
+click 700 250
+type SELECT 1 AS uno
+key f5
+wait-for sql-ok 4000
+# New tab starts empty
+click 416 67
+wait 300
+assert sql-tabs=2
+assert sql-text-empty
+assert sql-result-empty
+click 700 250
+type SELECT 2 AS dos
+key f5
+wait-for sql-ok 4000
+# Back to the first tab: its text comes back
+click 330 67
+wait 300
+assert sql-text-has=uno
+shot tabs-first
+# Close the first tab: the second remains
+click 382 67
+wait 300
+assert sql-tabs=1
+assert sql-text-has=dos
+quit

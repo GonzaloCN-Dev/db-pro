@@ -8,7 +8,7 @@ wait 300
 click 700 200
 type SELECT 1 AS uno
 wait 200
-dclick 320 102
+dclick 320 148
 key f5
 wait-for sql-idle 4000
 wait 300

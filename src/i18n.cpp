@@ -183,6 +183,7 @@ const Entry kTable[] = {
     { "sql.confirm-prod", "This is a PRODUCTION connection and the statement may modify data. Run it?", "Es una conexión de PRODUCCIÓN y la sentencia puede modificar datos. ¿Ejecutarla?" },
     { "sql.run-anyway", "Run", "Ejecutar" },
     { "sql.need-connection", "Connect to a database first.", "Conecta primero a una base de datos." },
+    { "sql.tab-title", "Query {0}", "Consulta {0}" },
     { "hist.title", "History", "Historial" },
     { "hist.search", "Search saved queries", "Buscar en las consultas guardadas" },
     { "hist.favorites", "Favorites", "Favoritas" },
