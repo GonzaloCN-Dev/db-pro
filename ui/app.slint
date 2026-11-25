@@ -3,7 +3,7 @@ import { Theme } from "theme.slint";
 import { Backend } from "backend.slint";
 import { Icon, Btn, IconBtn, TextField, Dropdown, Badge, Sep, Spinner, EmptyState, ProgressBar } from "widgets.slint";
 import { DataGrid, ResultGrid } from "grid.slint";
-import { ConfirmDialog, ConnectionDialog, ExportDialog, DetailDialog, SettingsDialog, AboutDialog } from "dialogs.slint";
+import { ConfirmDialog, ConnectionDialog, ExportDialog, DetailDialog, SettingsDialog, AboutDialog, HistoryDialog } from "dialogs.slint";
 import { TreeRowUi, TabUi, MetricUi } from "types.slint";
 
 component EnvBadge inherits Rectangle {
@@ -370,6 +370,7 @@ component SqlView inherits Rectangle {
                 Sep { vertical: true; }
                 Btn { text: Backend.t("sql.open"); icon: "\u{E8E5}"; kind: "ghost"; compact: true; clicked => { Backend.open-sql-file(); } }
                 Btn { text: Backend.t("sql.save"); icon: "\u{E74E}"; kind: "ghost"; compact: true; clicked => { Backend.save-sql-file(sql-input.text); } }
+                Btn { text: Backend.t("hist.title"); icon: "\u{E81C}"; kind: "ghost"; compact: true; clicked => { Backend.hist-open-clicked(); } }
                 Rectangle { }
                 Btn { text: Backend.t("sql.copy-result"); icon: "\u{E8B3}"; kind: "ghost"; compact: true; enabled: Backend.sql-rows.length > 0; clicked => { Backend.copy-sql-result(); } }
                 Btn { text: Backend.t("export"); icon: "\u{E896}"; kind: "ghost"; compact: true; enabled: Backend.sql-rows.length > 0; clicked => { Backend.export-sql-result(); } }
@@ -755,6 +756,7 @@ export component AppWindow inherits Window {
     if Backend.conn-dlg-open: ConnectionDialog { width: root.width; height: root.height; }
     if Backend.exp-open: ExportDialog { width: root.width; height: root.height; }
     if Backend.detail-open: DetailDialog { width: root.width; height: root.height; }
+    if Backend.hist-open: HistoryDialog { width: root.width; height: root.height; }
     if Backend.settings-open: SettingsDialog { width: root.width; height: root.height; }
     if Backend.about-open: AboutDialog { width: root.width; height: root.height; }
     if Backend.dlg-confirm-open: ConfirmDialog { width: root.width; height: root.height; }

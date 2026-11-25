@@ -1,0 +1,77 @@
+# Disposable SQLite profile. Runs queries from the SQL editor, then uses the history dialog.
+size 1360 800
+wait 400
+click 100 146
+wait-for connected 5000
+click 244 24
+wait 300
+assert history-entries=0
+# A read-only statement that fails must not be recorded.
+click 700 200
+type SELECT nope FROM nada
+key f5
+wait-for sql-idle 4000
+wait 300
+assert history-entries=0
+# Erase the 21 typed characters and run a valid statement.
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+type SELECT 1 AS uno
+key f5
+wait-for sql-ok 4000
+assert history-entries=1
+# "SELECT 1 AS uno" is 15 characters.
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+type SELECT 2 AS dos
+key f5
+wait-for sql-ok 4000
+assert history-entries=2
+# Open the history dialog.
+click 610 62
+wait 300
+assert history-open
+assert history-rows=2
+shot history-dialog
+# Star the first row.
+click 373 254
+wait 200
+assert history-favorites=1
+# Reuse the second row: it goes back into the editor and closes the dialog.
+click 600 306
+wait 300
+assert history-closed
+assert sql-text-is-history-second
+quit

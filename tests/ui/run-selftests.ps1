@@ -64,3 +64,4 @@ function Invoke-UiScenario([string]$Name, [string]$ScriptName, [bool]$BadPath = 
 
 Invoke-UiScenario "core" "core-flow.txt"
 Invoke-UiScenario "connection-error" "connection-error.txt" $true
+Invoke-UiScenario "sql-history" "sql-history.txt"

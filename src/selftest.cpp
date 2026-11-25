@@ -96,6 +96,8 @@ std::string key_text(const std::string &name)
     if (name == "right") return "\xEF\x9C\x83"; // U+F703
     if (name == "pgup") return "\xEF\x9C\xA9";  // U+F72C
     if (name == "pgdn") return "\xEF\x9C\xAA";  // U+F72D
+    if (name == "end") return "\xEF\x9C\xAB";   // U+F72B
+    if (name == "f5") return "\xEF\x9C\x88";    // U+F708
     return {};
 }
 

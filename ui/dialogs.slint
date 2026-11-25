@@ -1,4 +1,4 @@
-import { ScrollView } from "std-widgets.slint";
+import { ScrollView, ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Backend } from "backend.slint";
 import { Icon, Btn, IconBtn, TextField, Check, Dropdown, Segmented, FieldLabel, Sep, Spinner, ProgressBar } from "widgets.slint";
@@ -287,6 +287,101 @@ export component DetailDialog inherits Modal {
     HorizontalLayout {
         alignment: end;
         Btn { text: Backend.t("close"); clicked => { Backend.detail-open = false; } }
+    }
+}
+
+export component HistoryDialog inherits Modal {
+    title: Backend.t("hist.title");
+    dlg-width: 700px;
+    dismissed => { Backend.hist-open = false; }
+    HorizontalLayout {
+        spacing: 8px;
+        TextField {
+            horizontal-stretch: 1;
+            placeholder: Backend.t("hist.search");
+            edited(t) => { Backend.hist-search(t); }
+        }
+        Btn {
+            text: Backend.t("hist.favorites");
+            icon: "\u{E734}";
+            kind: Backend.hist-favorites-only ? "primary" : "default";
+            clicked => {
+                Backend.hist-favorites-only = !Backend.hist-favorites-only;
+                Backend.hist-favorites-toggled(Backend.hist-favorites-only);
+            }
+        }
+    }
+    Rectangle {
+        height: 340px;
+        background: Theme.surface2;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border;
+        clip: true;
+        if Backend.hist-rows.length == 0: Text {
+            text: Backend.hist-total == 0 ? Backend.t("hist.empty") : Backend.t("hist.no-match");
+            font-size: 13px;
+            color: Theme.text-dim;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            wrap: word-wrap;
+        }
+        ListView {
+            for h[i] in Backend.hist-rows: Rectangle {
+                height: 52px;
+                background: row-ta.has-hover ? Theme.hover : transparent;
+                row-ta := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { Backend.hist-use(i); }
+                }
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 4px;
+                    spacing: 4px;
+                    IconBtn {
+                        glyph: h.favorite ? "\u{E735}" : "\u{E734}";
+                        active: h.favorite;
+                        y: (parent.height - self.height) / 2;
+                        clicked => { Backend.hist-toggle-favorite(i); }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        spacing: 3px;
+                        Text {
+                            text: h.preview;
+                            font-size: 12px;
+                            font-family: Theme.mono;
+                            color: Theme.text;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: h.when + (h.runs > 1 ? "  ·  ×" + h.runs : "");
+                            font-size: 11px;
+                            color: Theme.text-faint;
+                        }
+                    }
+                    IconBtn {
+                        glyph: "\u{E74D}";
+                        y: (parent.height - self.height) / 2;
+                        clicked => { Backend.hist-delete(i); }
+                    }
+                }
+                Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+            }
+        }
+    }
+    Text {
+        text: Backend.t("hist.note");
+        font-size: 11px;
+        color: Theme.text-faint;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        Btn { text: Backend.t("hist.clear"); kind: "ghost"; enabled: Backend.hist-total > 0; clicked => { Backend.hist-clear(); } }
+        Rectangle { }
+        Btn { text: Backend.t("close"); clicked => { Backend.hist-open = false; } }
     }
 }
 

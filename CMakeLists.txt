@@ -25,6 +25,7 @@ add_library(dbpro_core STATIC
     src/core/engines.cpp
     src/core/activity_view.cpp
     src/store.cpp
+    src/query_history.cpp
     src/diagnostics.cpp
     src/platform.cpp
     src/updater.cpp
@@ -75,7 +76,7 @@ foreach(drv dbpro_driver_mysql dbpro_driver_postgres dbpro_driver_mssql dbpro_dr
     set_target_properties(${drv} PROPERTIES PREFIX "" RUNTIME_OUTPUT_DIRECTORY "${DBPRO_DRIVER_OUTPUT_DIR}")
 endforeach()
 enable_testing()
-add_executable(dbpro_tests tests/test_main.cpp tests/test_sqlgen.cpp tests/test_sqlite.cpp tests/test_changes.cpp tests/test_export_store.cpp tests/test_sqlsafety.cpp tests/test_drivers.cpp tests/test_engines.cpp tests/test_updater.cpp tests/test_diagnostics.cpp tests/test_activity_view.cpp)
+add_executable(dbpro_tests tests/test_main.cpp tests/test_sqlgen.cpp tests/test_sqlite.cpp tests/test_changes.cpp tests/test_export_store.cpp tests/test_sqlsafety.cpp tests/test_drivers.cpp tests/test_engines.cpp tests/test_updater.cpp tests/test_diagnostics.cpp tests/test_activity_view.cpp tests/test_query_history.cpp)
 target_link_libraries(dbpro_tests PRIVATE dbpro_core)
 target_compile_definitions(dbpro_tests PRIVATE DBPRO_TEST_DRIVERS_DIR="${DBPRO_DRIVER_OUTPUT_DIR}")
 add_dependencies(dbpro_tests dbpro_drivers)

@@ -29,6 +29,7 @@
 #include "i18n.h"
 #include "platform.h"
 #include "selftest.h"
+#include "query_history.h"
 #include "store.h"
 #include "updater.h"
 
@@ -209,6 +210,7 @@ public:
     Controller() : ui_(AppWindow::create()), store_()
     {
         store_.load();
+        history_.load();
         i18n::set_language(store_.settings.lang);
         ui_->global<Theme>().set_dark(store_.settings.dark);
         page_size_ = std::clamp(store_.settings.page_size, 10, 5000);
@@ -223,6 +225,7 @@ public:
         B().set_sql_rows(sql_rows_model_);
         B().set_tree(tree_model_);
         B().set_tabs(tabs_model_);
+        B().set_hist_rows(hist_model_);
         B().set_mon_metrics(mon_metrics_model_);
         B().set_mon_columns(mon_columns_model_);
         B().set_mon_rows(mon_rows_model_);
@@ -282,6 +285,18 @@ private:
             return true;
         }
         if (condition == "dialog-open") return B().get_dlg_confirm_open();
+        if (condition == "history-open") return B().get_hist_open();
+        if (condition == "history-closed") return !B().get_hist_open();
+        if (condition == "sql-idle") return !sql_running_;
+        if (condition == "sql-ok") return !B().get_sql_error() && !sql_running_ && !sql_out_.columns.empty();
+        if (number_after("history-entries=", expected)) return (int)history_.entries().size() == expected;
+        if (number_after("history-rows=", expected)) return (int)hist_model_->row_count() == expected;
+        if (number_after("history-favorites=", expected)) {
+            int n = 0;
+            for (const auto &e : history_.entries()) n += e.favorite ? 1 : 0;
+            return n == expected;
+        }
+        if (condition == "sql-text-is-history-second") return history_.entries().size() > 1 && U(B().get_sql_text()) == history_.entries()[1].text;
         if (condition == "monitor-supported") return B().get_mon_supported();
         if (condition == "monitor-unsupported") return !B().get_mon_supported();
         if (condition == "monitor-error") return !U(B().get_mon_error()).empty();
@@ -497,6 +512,7 @@ private:
         b.on_run_sql([this](slint::SharedString t) { run_sql(U(t)); });
         b.on_cancel_sql([this] { if (sql_cancel_) sql_cancel_->cancel(); });
         b.on_sql_column_resized([this](int c, float w) { resize_column(sql_widths_, c, w, true); });
+        wire_history(b);
         b.on_open_sql_file([this] { open_sql_file(); });
         b.on_save_sql_file([this](slint::SharedString t) { save_sql_file(U(t)); });
         b.on_export_sql_result([this] { open_export(true); });
@@ -2572,6 +2588,7 @@ private:
     void execute_sql(const std::string &text)
     {
         sql_running_ = true;
+        sql_last_text_ = text;
         sql_cancel_ = std::make_shared<CancelToken>();
         auto tok = sql_cancel_;
         B().set_sql_running(true);
@@ -2617,6 +2634,7 @@ private:
         sql_running_ = false;
         B().set_sql_running(false);
         set_busy();
+        if (history_.record(sql_last_text_, (long long)std::time(nullptr))) history_.save();
         if (cg != conn_gen_) return;
         sql_out_ = std::move(out);
         std::vector<ColumnUi> cols;
@@ -2662,6 +2680,87 @@ private:
         B().set_sql_error(false);
         B().set_sql_message(S(msg));
         if (sql_out_.columns.empty() && table_open_ && changes_.empty()) load_page(true);
+    }
+
+    // ------------------------------------------------------------------ SQL history
+    static std::string when_text(long long t)
+    {
+        long long now = (long long)std::time(nullptr);
+        long long d = now - t;
+        if (d < 60) return tr("hist.just-now");
+        std::time_t tt = (std::time_t)t;
+        std::tm tm {};
+        localtime_s(&tm, &tt);
+        char buf[32];
+        std::strftime(buf, sizeof buf, "%Y-%m-%d %H:%M", &tm);
+        return buf;
+    }
+
+    void rebuild_history()
+    {
+        hist_index_ = history_.view(hist_needle_, B().get_hist_favorites_only());
+        std::vector<HistoryUi> rows;
+        rows.reserve(hist_index_.size());
+        for (size_t k : hist_index_) {
+            const HistoryEntry &e = history_.entries()[k];
+            HistoryUi u {};
+            u.preview = S(QueryHistory::preview(e.text));
+            u.when = S(when_text(e.last_used));
+            u.runs = e.runs;
+            u.favorite = e.favorite;
+            rows.push_back(u);
+        }
+        hist_model_->set_vector(rows);
+        B().set_hist_total((int)history_.entries().size());
+    }
+
+    // Map the row the user clicked back to the entry, ignoring stale indexes.
+    const HistoryEntry *hist_entry(int row, size_t *real = nullptr) const
+    {
+        if (row < 0 || (size_t)row >= hist_index_.size()) return nullptr;
+        if (real) *real = hist_index_[(size_t)row];
+        return &history_.entries()[hist_index_[(size_t)row]];
+    }
+
+    void wire_history(const Backend &b)
+    {
+        b.on_hist_open_clicked([this] {
+            hist_needle_.clear();
+            B().set_hist_favorites_only(false);
+            rebuild_history();
+            B().set_hist_open(true);
+        });
+        b.on_hist_search([this](slint::SharedString t) { hist_needle_ = U(t); rebuild_history(); });
+        b.on_hist_favorites_toggled([this](bool) { rebuild_history(); });
+        b.on_hist_use([this](int row) {
+            const HistoryEntry *e = hist_entry(row);
+            if (!e) return;
+            B().set_sql_text(S(e->text));
+            B().set_hist_open(false);
+        });
+        b.on_hist_toggle_favorite([this](int row) {
+            size_t real = 0;
+            const HistoryEntry *e = hist_entry(row, &real);
+            if (!e) return;
+            history_.set_favorite(real, !e->favorite);
+            history_.save();
+            rebuild_history();
+        });
+        b.on_hist_delete([this](int row) {
+            size_t real = 0;
+            if (!hist_entry(row, &real)) return;
+            history_.remove(real);
+            history_.save();
+            rebuild_history();
+        });
+        b.on_hist_clear([this] {
+            confirm(tr("hist.clear-title"), tr("hist.clear-text"), "", tr("hist.clear"), "", true, false, [this](int r) {
+                if (r != 1) return;
+                history_.clear_plain();
+                history_.save();
+                rebuild_history();
+            });
+        });
     }
 
     void open_sql_file()
@@ -2712,6 +2811,10 @@ private:
 private:
     slint::ComponentHandle<AppWindow> ui_;
     Store store_;
+    QueryHistory history_;
+    std::vector<size_t> hist_index_;
+    std::string hist_needle_, sql_last_text_;
+    std::shared_ptr<slint::VectorModel<HistoryUi>> hist_model_ = std::make_shared<slint::VectorModel<HistoryUi>>();
     std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
     std::atomic<int> workers_ { 0 };
 

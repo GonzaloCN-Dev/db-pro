@@ -1,4 +1,4 @@
-import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi } from "types.slint";
+import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi, HistoryUi } from "types.slint";
 
 // Everything the UI shows or asks for goes through this global; src/app.cpp implements it.
 export global Backend {
@@ -183,6 +183,19 @@ export global Backend {
     callback save-sql-file(string);
     callback export-sql-result();
     callback copy-sql-result();
+
+    // ---- SQL history
+    in-out property <bool> hist-open: false;
+    in property <[HistoryUi]> hist-rows;
+    in property <int> hist-total: 0;
+    in-out property <bool> hist-favorites-only: false;
+    callback hist-open-clicked();
+    callback hist-search(string);
+    callback hist-favorites-toggled(bool);
+    callback hist-use(int);
+    callback hist-toggle-favorite(int);
+    callback hist-delete(int);
+    callback hist-clear();
 
     // ---- dialogs
     in-out property <bool> dlg-confirm-open: false;
