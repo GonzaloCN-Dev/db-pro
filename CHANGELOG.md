@@ -1,4 +1,11 @@
-﻿# Changelog
+# Changelog
+
+## 0.2.7
+- Cuadrícula: ocultar y reordenar columnas desde el botón «Columnas»; el diseño se guarda por conexión y tabla, por nombre de columna. No se puede ocultar la última columna visible ni una con filtro activo.
+- Copiar como TSV, CSV, JSON o INSERT (fila seleccionada o página), con las columnas visibles y el entrecomillado del motor; límite de 8 MB.
+- Pegar filas desde una hoja de cálculo: se validan todas las celdas antes de tocar nada, con vista previa; se añaden como filas nuevas pendientes de guardar (máx. 2000 filas, 4 MB).
+- Filtros guardados con nombre por conexión y tabla (solo el estado de las cajas, nunca SQL; máx. 30).
+- 115 pruebas unitarias y 9 autotests visuales (solo SQLite). Fijar la primera columna no está hecho.
 
 ## 0.2.6
 - Historial de consultas SQL con búsqueda y favoritas; solo guarda el texto de consultas correctas y omite las que mencionan contraseñas o tokens.

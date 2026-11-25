@@ -1,4 +1,19 @@
-﻿# Db Pro 0.2.6
+# Db Pro 0.2.7
+
+## Mejoras
+
+- **Columnas:** botón «Columnas» para ocultar y reordenar. Se guarda por conexión y tabla (por nombre de columna, así que un cambio de esquema no oculta la columna equivocada). Solo cambia la vista: edición, orden, filtros y guardado usan las columnas reales. Siempre queda una columna visible y no se puede ocultar una con filtro activo.
+- **Copiar como:** TSV, CSV, JSON o INSERT de la fila seleccionada o de la página, con las columnas visibles. CSV neutraliza fórmulas; INSERT usa el entrecomillado del motor (no disponible en MongoDB). Límite de 8 MB con aviso.
+- **Pegar desde hoja de cálculo:** lee el formato de Excel (comillas, tabuladores, saltos de línea), valida cada celda con las reglas de edición y, si todo es válido, muestra una vista previa y añade filas nuevas pendientes de guardar y deshacibles. Si hay errores no añade nada y lista los primeros. Máx. 2000 filas y 4 MB.
+- **Filtros guardados:** guarda con nombre los filtros escritos en las cajas, por conexión y tabla. Se almacena el estado de las cajas, no SQL; al aplicar se revalida contra las columnas actuales y se avisa de las condiciones omitidas.
+
+## Verificación
+
+- 115 pruebas unitarias, 0 fallidas; 9 autotests visuales (incluye columnas, portapapeles y filtros guardados), solo con SQLite.
+- No verificado: fijar la primera columna (no implementado), persistencia tras reiniciar la app, edición con columnas reordenadas, confirmar un pegado y guardarlo en servidor, pegar desde Excel real, y todo contra servidores reales. El instalador sigue sin firma Authenticode.
+
+---
+# Db Pro 0.2.6
 
 ## Mejoras
 
