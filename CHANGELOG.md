@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## 0.2.5
+- Nuevo ajuste «Tiempo límite de consultas» (sin límite, 30 s, 1, 5 o 10 min) para el editor SQL y la carga de páginas. Al cumplirse se detiene la consulta y se avisa de que el servidor puede seguir terminando el trabajo.
+- Reconexión automática con esperas crecientes (1, 2, 4, 8 y 16 s) tras perder la conexión. Los cambios sin guardar se conservan y un guardado interrumpido nunca se repite solo.
+- La actualización verifica el SHA-256 y borra el instalador si no coincide; nuevas pruebas de descarga solo desde el repositorio oficial por HTTPS.
+- Prueba aislada de actualización de extremo a extremo (`tests/updater/run-update-test.ps1`): 0.2.3 → 0.2.4 con la app abierta, reapertura, datos intactos y desinstalación limpia.
+- 88 pruebas unitarias.
+
 ## 0.2.4
 - La vista Rendimiento aprovecha todo el ancho de la ventana y sus filas de procesos son más altas para facilitar la lectura.
 - El editor SQL permite copiar su resultado al portapapeles como TSV, además de exportarlo.

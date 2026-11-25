@@ -1,3 +1,19 @@
+# Db Pro 0.2.5
+
+## Mejoras
+
+- **Tiempo límite de consultas:** nuevo ajuste (sin límite, 30 s, 1, 5 o 10 min) para el editor SQL y la carga de páginas. Usa el mecanismo de cancelación de cada conector; solo está verificado con SQLite. En PostgreSQL, MySQL/MariaDB, MongoDB y SQL Server no se ha probado contra servidor.
+- **Reconexión automática:** tras perder la conexión reintenta a 1, 2, 4, 8 y 16 s. Conserva los cambios sin guardar y nunca repite un guardado interrumpido sin que lo pidas. Probada la lógica y la detección con SQLite; no contra caídas reales de servidor.
+- **Actualizador:** el instalador descargado se borra si su SHA-256 no coincide, y la descarga solo se acepta desde las versiones oficiales por HTTPS.
+
+## Verificación
+
+- 88 pruebas unitarias, 0 fallidas; autotests visuales: core, persistencia de ajustes y error de conexión.
+- Actualización aislada 0.2.3 → 0.2.4 con la app abierta: reapertura, datos de usuario intactos y desinstalación limpia.
+- Pendiente: tiempo límite de conexión por perfil; pruebas reales con PostgreSQL, MySQL/MariaDB, MongoDB y SQL Server. No se usó MariaDB/XAMPP. El instalador sigue sin firma Authenticode.
+
+---
+
 # Db Pro 0.2.4
 
 ## Mejoras

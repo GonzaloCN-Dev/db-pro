@@ -2245,11 +2245,7 @@ private:
             bool bad_hash = false;
             if (err.empty()) {
                 post([this] { set_upd(4, "upd.verifying"); });
-                std::error_code ec;
-                if (updater::sha256_file(file) != r.sha256) {
-                    bad_hash = true;
-                    std::filesystem::remove(std::filesystem::path(platform::widen(file)), ec);
-                }
+                bad_hash = !updater::verify_file(file, r.sha256);
             }
             post([this, err, bad_hash, file] {
                 if (!err.empty()) { set_upd(6, "upd.failed", { err }); return; }

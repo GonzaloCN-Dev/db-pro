@@ -38,6 +38,10 @@ std::string download(const std::string &url, const std::string &path, const std:
 // Lowercase hex SHA-256 of a file, or an empty string if it cannot be read.
 std::string sha256_file(const std::string &path);
 
+// True when the file's SHA-256 equals `expected_hex` (case-insensitive). On mismatch or read failure the file is
+// deleted so a tampered or truncated installer can never be started.
+bool verify_file(const std::string &path, const std::string &expected_hex);
+
 // Starts the installer silently and returns at once. The caller must exit afterwards so Setup can replace the
 // running files; Setup relaunches the app (/RELAUNCH=1).
 bool run_installer(const std::string &path);

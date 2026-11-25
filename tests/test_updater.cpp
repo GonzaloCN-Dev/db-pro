@@ -41,6 +41,60 @@ TEST(update_release_needs_a_checksum_and_a_trusted_url)
     CHECK(viafile.sha256 == hex);
 }
 
+static std::string write_tmp(const char *name, const char *data, size_t n)
+{
+    FILE *f = std::fopen(name, "wb");
+    if (f) {
+        std::fwrite(data, 1, n, f);
+        std::fclose(f);
+    }
+    return name;
+}
+
+static bool exists(const std::string &p)
+{
+    FILE *f = std::fopen(p.c_str(), "rb");
+    if (f) std::fclose(f);
+    return f != nullptr;
+}
+
+TEST(update_verify_accepts_matching_hash_and_keeps_file)
+{
+    std::string p = write_tmp("updater_ok.bin", "abc", 3);
+    CHECK(verify_file(p, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+    CHECK(verify_file(p, "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"));
+    CHECK(exists(p));
+    std::remove(p.c_str());
+}
+
+TEST(update_verify_rejects_and_deletes_tampered_file)
+{
+    std::string p = write_tmp("updater_bad.bin", "abd", 3);
+    CHECK(!verify_file(p, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+    CHECK(!exists(p));
+}
+
+TEST(update_verify_rejects_malformed_or_missing_expectation)
+{
+    std::string p = write_tmp("updater_mal.bin", "abc", 3);
+    CHECK(!verify_file(p, ""));
+    CHECK(!exists(p));
+    p = write_tmp("updater_mal2.bin", "abc", 3);
+    CHECK(!verify_file(p, "not-a-hash"));
+    CHECK(!exists(p));
+    CHECK(!verify_file("Z:\\does\\not\\exist.bin", std::string(64, 'a')));
+}
+
+TEST(update_download_refuses_foreign_and_plain_http_sources)
+{
+    std::string p = "updater_foreign.exe";
+    CHECK(!download("https://evil.example/DbPro-Setup-9.9.9.exe", p, nullptr).empty());
+    CHECK(!download("http://github.com/GonzaloCN-Dev/db-pro/releases/download/v9/x.exe", p, nullptr).empty());
+    CHECK(!download("https://github.com/GonzaloCN-Dev/other/releases/download/v9/x.exe", p, nullptr).empty());
+    CHECK(!exists(p));
+    CHECK(!exists(p + ".part"));
+}
+
 TEST(update_sha256_of_a_file)
 {
     CHECK(sha256_file("Z:\\does\\not\\exist.bin").empty());

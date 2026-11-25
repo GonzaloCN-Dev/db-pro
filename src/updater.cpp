@@ -285,6 +285,15 @@ std::string sha256_file(const std::string &path)
     return result;
 }
 
+bool verify_file(const std::string &path, const std::string &expected_hex)
+{
+    std::string got = sha256_file(path);
+    if (is_hex64(expected_hex) && !got.empty() && got == to_lower(expected_hex)) return true;
+    std::error_code ec;
+    fs::remove(fs::path(platform::widen(path)), ec);
+    return false;
+}
+
 bool run_installer(const std::string &path)
 {
     std::wstring cmd = L"\"" + platform::widen(path) + L"\" /SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CLOSEAPPLICATIONS /RELAUNCH=1 ";
