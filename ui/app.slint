@@ -1,4 +1,4 @@
-import { ListView, ScrollView } from "std-widgets.slint";
+﻿import { ListView, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Backend } from "backend.slint";
 import { Icon, Btn, IconBtn, TextField, Dropdown, Badge, Sep, Spinner, EmptyState, ProgressBar } from "widgets.slint";
@@ -351,6 +351,15 @@ component DataView inherits Rectangle {
 
 component SqlView inherits Rectangle {
     background: Theme.surface;
+    function run() {
+        if (sql-input.has-selection) {
+            Backend.selection-begin();
+            sql-input.copy();
+            Backend.run-sql-selected(sql-input.text);
+        } else {
+            Backend.run-sql(sql-input.text);
+        }
+    }
     VerticalLayout {
         Rectangle {
             height: 44px;
@@ -364,7 +373,7 @@ component SqlView inherits Rectangle {
                     kind: "primary";
                     compact: true;
                     enabled: Backend.connected && !Backend.sql-running;
-                    clicked => { Backend.run-sql(sql-input.text); }
+                    clicked => { root.run(); }
                 }
                 if Backend.sql-running: Btn { text: Backend.t("cancel"); compact: true; clicked => { Backend.cancel-sql(); } }
                 Sep { vertical: true; }
@@ -396,11 +405,11 @@ component SqlView inherits Rectangle {
                 selection-foreground-color: #ffffff;
                 key-pressed(e) => {
                     if (e.text == Key.Return && (e.modifiers.control || e.modifiers.shift)) {
-                        Backend.run-sql(self.text);
+                        root.run();
                         return accept;
                     }
                     if (e.text == Key.F5) {
-                        Backend.run-sql(self.text);
+                        root.run();
                         return accept;
                     }
                     return reject;
@@ -545,7 +554,7 @@ component MonitorView inherits Rectangle {
                     for col[ci] in Backend.mon-columns: Rectangle {
                         x: col.x * mon-table.scale;
                         width: col.width * mon-table.scale;
-                        Text { x: 8px; width: parent.width - 16px; text: col.name + (col.sort == 1 ? " ↑" : col.sort == 2 ? " ↓" : ""); font-size: 11px; font-weight: 700; color: Theme.text-dim; overflow: elide; vertical-alignment: center; }
+                        Text { x: 8px; width: parent.width - 16px; text: col.name + (col.sort == 1 ? " â†‘" : col.sort == 2 ? " â†“" : ""); font-size: 11px; font-weight: 700; color: Theme.text-dim; overflow: elide; vertical-alignment: center; }
                         TouchArea {
                             mouse-cursor: MouseCursor.pointer;
                             clicked => { Backend.mon-sort(ci); }

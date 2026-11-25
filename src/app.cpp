@@ -1,4 +1,4 @@
-// Application controller: owns the Slint window, the active connection and every worker thread.
+﻿// Application controller: owns the Slint window, the active connection and every worker thread.
 // The UI thread never blocks: connector calls run on worker threads and post their results back with
 // slint::invoke_from_event_loop. Each data request carries a generation number; late answers are dropped.
 #include <algorithm>
@@ -61,7 +61,7 @@ std::string cell_text(const std::string &s, size_t max = 160)
         if (c == '\r') continue;
         out += (c == '\n' || c == '\t') ? ' ' : c;
     }
-    if (n < s.size()) out += "…";
+    if (n < s.size()) out += "â€¦";
     return out;
 }
 
@@ -287,6 +287,7 @@ private:
         if (condition == "dialog-open") return B().get_dlg_confirm_open();
         if (condition == "history-open") return B().get_hist_open();
         if (condition == "history-closed") return !B().get_hist_open();
+        if (condition == "sql-error") return B().get_sql_error();
         if (condition == "sql-idle") return !sql_running_;
         if (condition == "sql-ok") return !B().get_sql_error() && !sql_running_ && !sql_out_.columns.empty();
         if (number_after("history-entries=", expected)) return (int)history_.entries().size() == expected;
@@ -510,6 +511,16 @@ private:
 
         // SQL editor
         b.on_run_sql([this](slint::SharedString t) { run_sql(U(t)); });
+        b.on_selection_begin([this] { saved_clipboard_ = platform::clipboard_get(); });
+        b.on_run_sql_selected([this](slint::SharedString full) {
+            // Slint does not expose the selection offsets, so the editor copies it and we read it back.
+            std::optional<std::string> sel = platform::clipboard_get();
+            if (saved_clipboard_) platform::clipboard_set(*saved_clipboard_);
+            saved_clipboard_.reset();
+            bool blank = true;
+            if (sel) for (char ch : *sel) if (!std::isspace((unsigned char)ch)) blank = false;
+            run_sql(blank ? U(full) : *sel);
+        });
         b.on_cancel_sql([this] { if (sql_cancel_) sql_cancel_->cancel(); });
         b.on_sql_column_resized([this](int c, float w) { resize_column(sql_widths_, c, w, true); });
         wire_history(b);
@@ -806,7 +817,7 @@ private:
                     B().set_server_info(S(info));
                     reset_monitor_ui();
                     if (B().get_view() == 2) start_monitor();
-                    set_status(trf("status.connected", { p.name }) + " — " + info);
+                    set_status(trf("status.connected", { p.name }) + " â€” " + info);
                     set_busy();
                     rebuild_tree();
                 });
@@ -861,7 +872,7 @@ private:
                     reconnecting_ = false;
                     spawn([old] { try { old->close(); } catch (...) {} });
                     B().set_server_info(S(info));
-                    set_status(trf("status.reconnected", { profile_.name }) + (changes_.empty() ? "" : " — " + tr("status.reconnected-pending")));
+                    set_status(trf("status.reconnected", { profile_.name }) + (changes_.empty() ? "" : " â€” " + tr("status.reconnected-pending")));
                     if (changes_.empty() && table_open_) load_page(true);
                 });
             } catch (const std::exception &) {
@@ -1627,7 +1638,7 @@ private:
         switch (v.kind) {
         case Value::Kind::Null: c.text = S("NULL"); c.kind = 1; break;
         case Value::Kind::Default: c.text = S("DEFAULT"); c.kind = 2; break;
-        case Value::Kind::Missing: c.text = S("—"); c.kind = 3; break;
+        case Value::Kind::Missing: c.text = S("â€”"); c.kind = 3; break;
         case Value::Kind::Bytes: c.text = S(cell_text(v.display())); c.kind = 4; break;
         default: c.text = S(cell_text(v.display())); c.kind = 0; break;
         }
@@ -1776,7 +1787,7 @@ private:
         menu_ops_.clear();
         menu_col_ = ci;
         if (!table_open_ || ci < 0 || ci >= (int)meta_.columns.size()) { op_menu_model_->set_vector(labels); return; }
-        labels.push_back(S("—  (" + tr("discard") + ")"));
+        labels.push_back(S("â€”  (" + tr("discard") + ")"));
         menu_ops_ = col_ops(ci);
         for (Op o : menu_ops_) labels.push_back(S(std::string(op_symbol(o)) + "   " + op_label(o)));
         op_menu_model_->set_vector(labels);
@@ -2428,7 +2439,7 @@ private:
             u.label = S(label == "mon.m." + m.key ? m.label : label);
             double r = mon_rates_.count(m.key) ? mon_rates_[m.key] : m.value;
             if (r < 0) {
-                u.value = S("—");
+                u.value = S("â€”");
             } else if (m.unit == "B") {
                 u.value = S(human_bytes(r) + (m.counter ? "/s" : ""));
             } else {
@@ -2512,7 +2523,7 @@ private:
         update_monitor_selection(selected_original);
 
         std::string upd = trf("mon.updated", { mon_updated_ });
-        if (mon_paused_) upd += " · " + tr("mon.paused");
+        if (mon_paused_) upd += " Â· " + tr("mon.paused");
         B().set_mon_updated(S(upd));
         B().set_mon_summary(S(a.columns.empty()
                                   ? tr("mon.local-summary")
@@ -2812,6 +2823,7 @@ private:
     slint::ComponentHandle<AppWindow> ui_;
     Store store_;
     QueryHistory history_;
+    std::optional<std::string> saved_clipboard_;
     std::vector<size_t> hist_index_;
     std::string hist_needle_, sql_last_text_;
     std::shared_ptr<slint::VectorModel<HistoryUi>> hist_model_ = std::make_shared<slint::VectorModel<HistoryUi>>();

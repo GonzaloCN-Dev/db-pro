@@ -1,4 +1,4 @@
-import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi, HistoryUi } from "types.slint";
+﻿import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi, HistoryUi } from "types.slint";
 
 // Everything the UI shows or asks for goes through this global; src/app.cpp implements it.
 export global Backend {
@@ -177,6 +177,8 @@ export global Backend {
     in property <bool> sql-running: false;
     in property <bool> sql-error: false;
     callback run-sql(string);
+    callback selection-begin();
+    callback run-sql-selected(string);
     callback cancel-sql();
     callback sql-column-resized(int, length);
     callback open-sql-file();

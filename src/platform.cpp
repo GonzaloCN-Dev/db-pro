@@ -1,4 +1,4 @@
-#include "platform.h"
+﻿#include "platform.h"
 
 #include <windows.h>
 
@@ -96,6 +96,20 @@ bool clipboard_set(const std::string &utf8)
     if (!ok) GlobalFree(h);
     CloseClipboard();
     return ok;
+}
+
+std::optional<std::string> clipboard_get()
+{
+    if (!OpenClipboard(GetActiveWindow())) return std::nullopt;
+    std::optional<std::string> out;
+    if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) {
+        if (const wchar_t *p = (const wchar_t *)GlobalLock(h)) {
+            out = narrow(p);
+            GlobalUnlock(h);
+        }
+    }
+    CloseClipboard();
+    return out;
 }
 
 static std::wstring filter_string(const std::vector<Filter> &f)

@@ -1,0 +1,18 @@
+﻿# Selecting part of the editor text runs only that part.
+size 1360 800
+wait 400
+click 100 146
+wait-for connected 5000
+click 244 24
+wait 300
+click 700 200
+type SELECT 1 AS uno
+wait 200
+dclick 320 102
+key f5
+wait-for sql-idle 4000
+wait 300
+assert sql-error
+assert history-entries=0
+shot selection-run
+quit

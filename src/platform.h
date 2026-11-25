@@ -1,4 +1,4 @@
-// Thin Windows layer: credential vault, clipboard, native file dialogs, per-user data dir.
+﻿// Thin Windows layer: credential vault, clipboard, native file dialogs, per-user data dir.
 #pragma once
 
 #include <optional>
@@ -20,6 +20,7 @@ std::optional<std::string> cred_read(const std::string &target);
 void cred_delete(const std::string &target);
 
 bool clipboard_set(const std::string &utf8);
+std::optional<std::string> clipboard_get(); // text only
 
 using Filter = std::pair<std::string, std::string>; // label, pattern e.g. {"CSV", "*.csv"}
 std::optional<std::string> save_dialog(const std::string &title, const std::string &default_name, const std::vector<Filter> &filters);
