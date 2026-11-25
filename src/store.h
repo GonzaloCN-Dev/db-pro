@@ -33,6 +33,7 @@ struct Settings {
     bool auto_update = false;       // opt-in: look for a new release at startup (at most once a day)
     long long last_update_check = 0; // unix seconds
     int monitor_interval = 5;       // seconds between activity refreshes
+    int query_timeout = 0;          // seconds for SQL editor and page loads; 0 = no limit
 };
 
 class Store {

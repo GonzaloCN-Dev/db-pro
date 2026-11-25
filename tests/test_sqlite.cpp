@@ -308,6 +308,41 @@ TEST(long_query_can_be_cancelled)
     CHECK_EQ(c->execute("SELECT 1", 1, nullptr).rows[0][0].i, (int64_t)1);
 }
 
+TEST(query_deadline_stops_long_query_and_is_flagged_as_timeout)
+{
+    auto c = connect_sqlite(tmp_db("deadline"), false);
+    seed(*c, 10);
+    auto tok = std::make_shared<CancelToken>();
+    bool stopped = false;
+    auto t0 = std::chrono::steady_clock::now();
+    try {
+        Deadline dl(tok, 1);
+        c->execute("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n) SELECT count(*) FROM n", 10, tok);
+    } catch (const DbError &) { stopped = true; }
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    CHECK(stopped);
+    CHECK(tok->timed_out());
+    CHECK(ms < 4000);
+    CHECK_EQ(c->execute("SELECT 1", 1, nullptr).rows[0][0].i, (int64_t)1);
+}
+
+TEST(query_deadline_does_not_fire_after_finishing)
+{
+    auto tok = std::make_shared<CancelToken>();
+    {
+        Deadline dl(tok, 1);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1300));
+    CHECK(!tok->cancelled());
+    CHECK(!tok->timed_out());
+    auto none = std::make_shared<CancelToken>();
+    {
+        Deadline dl(none, 0); // no limit
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    CHECK(!none->cancelled());
+}
+
 TEST(distinct_values_remote_search_is_bounded)
 {
     auto c = connect_sqlite(tmp_db("distinct"), false);

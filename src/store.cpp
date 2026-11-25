@@ -115,6 +115,7 @@ void Store::load()
             settings.auto_update = j.value("auto_update", false);
             settings.last_update_check = j.value("last_update_check", 0LL);
             settings.monitor_interval = std::clamp(j.value("monitor_interval", 5), 1, 60);
+            settings.query_timeout = std::clamp(j.value("query_timeout", 0), 0, 3600);
         }
     } catch (...) {
         // A corrupt file must not stop the app from starting; the user simply sees no profiles.
@@ -145,7 +146,7 @@ bool Store::save() const
     json pj = json::array();
     for (auto &p : profiles) pj.push_back(to_json(p));
     json s = { { "dark", settings.dark }, { "lang", settings.lang }, { "page_size", settings.page_size }, { "last_export_dir", settings.last_export_dir },
-                { "auto_update", settings.auto_update }, { "last_update_check", settings.last_update_check }, { "monitor_interval", settings.monitor_interval } };
+                { "auto_update", settings.auto_update }, { "last_update_check", settings.last_update_check }, { "monitor_interval", settings.monitor_interval }, { "query_timeout", settings.query_timeout } };
     fs::path dir(platform::widen(dir_));
     bool a = write_atomic(dir / L"connections.json", json({ { "version", 1 }, { "profiles", pj } }).dump(2));
     bool b = write_atomic(dir / L"settings.json", s.dump(2));

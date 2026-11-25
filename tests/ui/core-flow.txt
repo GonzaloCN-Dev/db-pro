@@ -33,11 +33,11 @@ assert clean
 click 1334 24
 wait 300
 assert settings-open
-click 674 310
+click 674 267
 wait 300
 assert page-size-index=2
 shot settings
-click 900 702
+click 900 725
 wait 250
 click 1295 24
 wait 250

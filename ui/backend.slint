@@ -44,6 +44,8 @@ export global Backend {
     in property <int> lang-index: 0;                  // 0 Spanish, 1 English
     in-out property <bool> auto-update: false;
     in property <int> monitor-interval-index: 2;
+    in property <int> query-timeout-index: 0;
+    callback settings-query-timeout(int);
     in property <int> upd-state: 0;                   // 0 idle, 1 checking, 2 up to date, 3 available, 4 downloading, 5 starting installer, 6 error
     in property <string> upd-text: "";
     in property <string> upd-notes: "";

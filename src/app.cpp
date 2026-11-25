@@ -137,6 +137,7 @@ struct ColFilter {
 enum class TotalMode { Unknown, Estimated, Exact };
 
 const int kMonitorIntervals[] = { 1, 2, 5, 10, 30 };
+const int kQueryTimeouts[] = { 0, 30, 60, 300, 600 };
 const size_t kMaxTabs = 16;
 const size_t kSparkPoints = 60;
 
@@ -373,6 +374,11 @@ private:
             B().set_monitor_interval_index(monitor_interval_index());
             store_.save();
             if (monitor_active()) start_monitor();
+        });
+        b.on_settings_query_timeout([this](int i) {
+            store_.settings.query_timeout = kQueryTimeouts[std::clamp(i, 0, 4)];
+            B().set_query_timeout_index(query_timeout_index());
+            store_.save();
         });
         b.on_settings_page_size([this](int i) {
             const int size = kPageSizes[std::clamp(i, 0, 4)];
@@ -1348,9 +1354,11 @@ private:
         loading_ = true;
         B().set_loading(true);
         set_busy();
-        spawn([this, c, meta = std::move(meta), req = std::move(req), tok, fg] {
+        int limit = store_.settings.query_timeout;
+        spawn([this, c, meta = std::move(meta), req = std::move(req), tok, fg, limit] {
             diagnostics::set_phase(diagnostics::Phase::FetchingPage);
             try {
+                Deadline dl(tok, limit);
                 Page p = c->fetch_page(meta, req, tok);
                 post([this, fg, p = std::move(p)]() mutable {
                     diagnostics::set_phase(diagnostics::Phase::RenderingPage);
@@ -1360,13 +1368,14 @@ private:
             } catch (const DbError &e) {
                 std::string m = e.what();
                 bool cancelled = e.kind == ErrKind::Cancelled;
-                post([this, fg, m, cancelled] {
+                bool timed_out = tok->timed_out();
+                post([this, fg, m, cancelled, timed_out, limit] {
                     if (fg != fetch_gen_) return;
                     diagnostics::set_phase(diagnostics::Phase::Idle);
                     loading_ = false;
                     B().set_loading(false);
                     set_busy();
-                    set_status(cancelled ? tr("status.cancelled") : trf("status.query-failed", { m }));
+                    set_status(timed_out ? trf("status.timeout", { std::to_string(limit) }) : cancelled ? tr("status.cancelled") : trf("status.query-failed", { m }));
                 });
             } catch (const std::exception &e) {
                 std::string m = e.what();
@@ -2080,8 +2089,16 @@ private:
         return 2;
     }
 
+    int query_timeout_index() const
+    {
+        for (int k = 0; k < 5; ++k)
+            if (kQueryTimeouts[k] == store_.settings.query_timeout) return k;
+        return 0;
+    }
+
     void open_settings()
     {
+        B().set_query_timeout_index(query_timeout_index());
         B().set_app_version(S(brand::kVersion));
         B().set_app_copyright(S(brand::kCopyright));
         B().set_theme_index(store_.settings.dark ? 0 : 1);
@@ -2505,13 +2522,16 @@ private:
         auto c = conn_;
         uint64_t cg = conn_gen_;
         constexpr size_t kMaxRows = 10000;
-        spawn([this, c, text, tok, cg] {
+        int limit = store_.settings.query_timeout;
+        spawn([this, c, text, tok, cg, limit] {
             try {
+                Deadline dl(tok, limit);
                 QueryOutput out = c->execute(text, kMaxRows, tok);
                 post([this, cg, out = std::move(out)]() mutable { on_sql_done(cg, std::move(out)); });
             } catch (const DbError &e) {
                 std::string m = e.what();
                 bool cancelled = e.kind == ErrKind::Cancelled;
+                if (tok->timed_out()) m = trf("status.timeout", { std::to_string(limit) }), cancelled = false;
                 post([this, m, cancelled] { sql_failed(cancelled ? tr("status.cancelled") : m); });
             } catch (const std::exception &e) {
                 std::string m = e.what();

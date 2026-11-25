@@ -3,6 +3,8 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -10,6 +12,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace dbp {
@@ -38,7 +41,14 @@ public:
         if (h)
             h();
     }
+    // Deadline reached: same effect as cancel(), but callers can tell the difference.
+    void expire()
+    {
+        timed_out_ = true;
+        cancel();
+    }
     bool cancelled() const { return flag_; }
+    bool timed_out() const { return timed_out_; }
     void set_hook(std::function<void()> h)
     {
         bool fire;
@@ -58,6 +68,7 @@ public:
 
 private:
     std::atomic<bool> flag_ { false };
+    std::atomic<bool> timed_out_ { false };
     std::mutex m_;
     std::function<void()> hook_;
 };
@@ -65,8 +76,45 @@ using CancelPtr = std::shared_ptr<CancelToken>;
 
 inline void throw_if_cancelled(const CancelPtr &token)
 {
-    if (token && token->cancelled()) throw DbError(ErrKind::Cancelled, "operation cancelled");
+    if (token && token->cancelled()) throw DbError(token->timed_out() ? ErrKind::Timeout : ErrKind::Cancelled, token->timed_out() ? "the operation exceeded the time limit" : "operation cancelled");
 }
+
+// Expires a token after `seconds` unless destroyed first. seconds <= 0 or a null token = no limit.
+// Works with every connector because it reuses the token's engine-specific cancel hook.
+class Deadline {
+public:
+    Deadline(const CancelPtr &token, int seconds)
+    {
+        if (!token || seconds <= 0) return;
+        st_ = std::make_shared<State>();
+        std::thread([st = st_, token, seconds] {
+            std::unique_lock<std::mutex> lk(st->m);
+            if (!st->cv.wait_for(lk, std::chrono::seconds(seconds), [&] { return st->done; })) {
+                lk.unlock();
+                token->expire();
+            }
+        }).detach();
+    }
+    ~Deadline()
+    {
+        if (!st_) return;
+        {
+            std::lock_guard<std::mutex> g(st_->m);
+            st_->done = true;
+        }
+        st_->cv.notify_all();
+    }
+    Deadline(const Deadline &) = delete;
+    Deadline &operator=(const Deadline &) = delete;
+
+private:
+    struct State {
+        std::mutex m;
+        std::condition_variable cv;
+        bool done = false;
+    };
+    std::shared_ptr<State> st_;
+};
 
 struct HookGuard {
     CancelPtr t;

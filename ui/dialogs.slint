@@ -330,6 +330,15 @@ export component SettingsDialog inherits Modal {
             selected(i) => { Backend.settings-monitor-interval(i); }
         }
     }
+    VerticalLayout {
+        spacing: 4px;
+        FieldLabel { text: Backend.t("settings.query-timeout"); }
+        Segmented {
+            model: [Backend.t("settings.timeout-off"), "30 s", "1 min", "5 min", "10 min"];
+            current-index: Backend.query-timeout-index;
+            selected(i) => { Backend.settings-query-timeout(i); }
+        }
+    }
     Sep { }
     VerticalLayout {
         spacing: 8px;
