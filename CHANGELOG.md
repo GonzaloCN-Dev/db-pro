@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.8
+- Diagnóstico de cierres ampliado: además de excepciones y terminate, ahora se registran abort(), parámetros inválidos, llamadas virtuales puras y desbordamiento de pila (se reserva espacio para poder escribir).
+- Marca de sesión: si la sesión anterior no terminó limpiamente (fallo rápido, panic de Rust, proceso matado), el siguiente arranque lo anota en logs\crashes.log con la versión y la fase en que iba. Solo versión y fase; sin SQL ni credenciales.
+- 117 pruebas unitarias.
+
 ## 0.2.7
 - Cuadrícula: ocultar y reordenar columnas desde el botón «Columnas»; el diseño se guarda por conexión y tabla, por nombre de columna. No se puede ocultar la última columna visible ni una con filtro activo.
 - Copiar como TSV, CSV, JSON o INSERT (fila seleccionada o página), con las columnas visibles y el entrecomillado del motor; límite de 8 MB.

@@ -1,3 +1,16 @@
+# Db Pro 0.2.8
+
+## Mejoras
+
+- **Diagnóstico de cierres:** se registran también abort(), parámetros inválidos, llamadas virtuales puras y desbordamiento de pila. Además, una marca de sesión detecta cierres que ningún manejador puede capturar (fallo rápido, panic de Rust, proceso terminado): al abrir de nuevo, `logs\crashes.log` anota que la sesión anterior terminó mal, con su versión y la fase en que estaba. No incluye SQL, servidores ni credenciales.
+
+## Verificación
+
+- 117 pruebas unitarias, 0 fallidas. Probado a mano: matar el proceso deja el aviso en el arranque siguiente y un cierre normal no deja nada.
+- No verificado: desbordamiento de pila real ni fallo rápido real (solo la detección por marca). Esta versión no corrige el cierre al abrir tabla: solo permite diagnosticarlo. El instalador sigue sin firma Authenticode.
+
+---
+
 # Db Pro 0.2.7
 
 ## Mejoras

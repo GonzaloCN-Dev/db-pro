@@ -2,7 +2,9 @@
 
 #include <cstdlib>
 
+#include "core/brand.h"
 #include "diagnostics.h"
+#include "platform.h"
 
 int run_app();
 
@@ -22,5 +24,8 @@ int main()
     // The GL renderer shows a blank window on some drivers; software rendering is reliable everywhere.
     if (!std::getenv("SLINT_BACKEND")) _putenv_s("SLINT_BACKEND", "winit-software");
 
-    return run_app();
+    dbp::diagnostics::begin_session(dbp::platform::data_dir() + "\\logs", dbp::brand::kVersion);
+    int rc = run_app();
+    dbp::diagnostics::end_session_clean();
+    return rc;
 }
