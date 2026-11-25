@@ -1,0 +1,15 @@
+﻿size 1360 800
+wait 400
+click 100 146
+wait-for connected 5000
+click 100 174
+wait-for table-open 5000
+click 360 216
+click 690 100
+wait 200
+click 793 100
+wait 400
+assert paste-open
+assert paste-rows=1
+shot paste-dialog
+quit

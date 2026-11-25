@@ -30,6 +30,9 @@
 #include "platform.h"
 #include "selftest.h"
 #include "column_layouts.h"
+#include "core/copyformat.h"
+#include "core/paste.h"
+#include "core/engines.h"
 #include "query_history.h"
 #include "store.h"
 #include "updater.h"
@@ -300,6 +303,9 @@ private:
         if (condition == "columns-open") return B().get_colcfg_open();
         if (number_after("columns-hidden=", expected)) { int n = 0; for (bool h : view_.hidden) n += h ? 1 : 0; return n == expected; }
         if (number_after("columns-first=", expected)) { return !view_.order.empty() && (int)view_.order[0] == expected; }
+        if (condition == "paste-open") return B().get_paste_open();
+        if (condition == "copyas-open") return B().get_copyas_open();
+        if (number_after("paste-rows=", expected)) return (int)paste_rows_.size() == expected;
         if (condition == "sql-idle") return !sql_running_;
         if (condition == "sql-ok") return !B().get_sql_error() && !sql_running_ && !sql_out_.columns.empty();
         if (number_after("history-entries=", expected)) return (int)history_.entries().size() == expected;
@@ -540,6 +546,7 @@ private:
         b.on_sql_column_resized([this](int c, float w) { resize_column(sql_widths_, c, w, true); });
         wire_history(b);
         wire_columns(b);
+        wire_clipboard(b);
         b.on_open_sql_file([this] { open_sql_file(); });
         b.on_save_sql_file([this](slint::SharedString t) { save_sql_file(U(t)); });
         b.on_export_sql_result([this] { open_export(true); });
@@ -1615,6 +1622,119 @@ private:
         return u;
     }
 
+    // ---- copy as CSV/JSON/INSERT and paste from a spreadsheet
+    Dialect copy_dialect() const
+    {
+        const EngineDef *e = find_engine(profile_.engine);
+        std::string d = e ? e->driver : "";
+        if (d == "postgres") return Dialect::Postgres;
+        if (d == "mysql") return Dialect::MySql;
+        if (d == "mssql") return Dialect::MsSql;
+        if (d == "duckdb") return Dialect::DuckDb;
+        return Dialect::Sqlite;
+    }
+
+    std::vector<size_t> shown_columns()
+    {
+        ensure_view();
+        std::vector<size_t> v;
+        for (size_t k : view_.order) if (!view_.hidden[k]) v.push_back(k);
+        return v;
+    }
+
+    void copy_as(int scope)
+    {
+        int fmt = B().get_copyas_format();
+        if (!table_open_) return;
+        if (fmt == 3 && profile_.engine == "mongodb") { set_status(tr("copyas.no-insert")); return; }
+        auto cols_idx = shown_columns();
+        std::vector<ColumnInfo> cols;
+        for (size_t k : cols_idx) cols.push_back(meta_.columns[k]);
+        std::vector<std::vector<Value>> rows;
+        int n = (int)visible_rows();
+        for (int r = 0; r < n; ++r) {
+            if (scope == 0 && r != B().get_sel_row()) continue;
+            if (changes_.is_deleted(r)) continue;
+            std::vector<Value> row;
+            for (size_t k : cols_idx) row.push_back(changes_.current(rows_, r, k));
+            rows.push_back(std::move(row));
+        }
+        try {
+            CopyFormat f = fmt == 0 ? CopyFormat::Tsv : fmt == 1 ? CopyFormat::Csv : fmt == 2 ? CopyFormat::Json : CopyFormat::SqlInsert;
+            CopyResult res = format_rows(cols, rows, f, meta_.table.name, copy_dialect(), true);
+            if (!platform::clipboard_set(res.text)) { set_status(tr("copyas.failed")); return; }
+            B().set_copyas_open(false);
+            set_status(res.truncated ? trf("copyas.truncated", { std::to_string(res.rows) }) : trf("copyas.done", { std::to_string(res.rows) }));
+        } catch (const std::exception &e) {
+            set_status(trf("copyas.error", { e.what() }));
+        }
+    }
+
+    std::string paste_msg(const std::string &m) { return m.rfind("paste.", 0) == 0 ? tr(m.c_str()) : m; }
+
+    void paste_request()
+    {
+        if (!table_open_ || !editable_) return;
+        auto text = platform::clipboard_get();
+        if (!text || text->empty()) { set_status(tr("paste.empty")); return; }
+        std::vector<std::vector<std::string>> cells;
+        std::string err;
+        if (!parse_tsv(*text, cells, &err)) { set_status(paste_msg(err)); return; }
+        if (cells.empty()) { set_status(tr("paste.empty")); return; }
+        auto shown = shown_columns();
+        size_t start = 0;
+        int sc = B().get_sel_col();
+        for (size_t p = 0; p < shown.size(); ++p) if ((int)shown[p] == sc) start = p;
+        std::vector<size_t> targets(shown.begin() + (long)start, shown.end());
+        PastePlan plan = plan_paste(meta_.columns, targets, cells);
+        std::string s;
+        if (!plan.ok()) {
+            s = trf("paste.invalid", { std::to_string(plan.issues.size()) });
+            size_t shown_n = 0;
+            for (auto &i : plan.issues) {
+                if (shown_n++ >= 5) break;
+                std::string col = i.col < targets.size() ? meta_.columns[targets[i.col]].name : std::string("?");
+                s += "\n" + trf("paste.issue", { std::to_string(i.row + 1), col, paste_msg(i.message) });
+            }
+            paste_targets_.clear();
+            paste_rows_.clear();
+            B().set_paste_summary(S(s));
+            B().set_paste_open(true);
+            B().set_paste_can_confirm(false);
+            return;
+        }
+        std::string names;
+        for (size_t k = 0; k < targets.size() && k < cells[0].size(); ++k) names += (k ? ", " : "") + meta_.columns[targets[k]].name;
+        paste_targets_ = targets;
+        paste_rows_ = std::move(plan.values);
+        B().set_paste_summary(S(trf("paste.ready", { std::to_string(paste_rows_.size()), names })));
+        B().set_paste_can_confirm(true);
+        B().set_paste_open(true);
+    }
+
+    void paste_confirm()
+    {
+        if (paste_rows_.empty() || !editable_) { B().set_paste_open(false); return; }
+        for (auto &vals : paste_rows_) {
+            std::vector<Value> row = ChangeSet::blank_row(meta_);
+            for (size_t k = 0; k < vals.size() && k < paste_targets_.size(); ++k) row[paste_targets_[k]] = vals[k];
+            changes_.add_insert(std::move(row));
+        }
+        size_t n = paste_rows_.size();
+        paste_rows_.clear();
+        B().set_paste_open(false);
+        refresh_rows();
+        update_pending();
+        scroll_to_row((int)visible_rows() - 1);
+        set_status(trf("paste.done", { std::to_string(n) }));
+    }
+
+    void wire_clipboard(const Backend &b)
+    {
+        b.on_copyas_do([this](int scope) { copy_as(scope); });
+        b.on_paste_request([this] { paste_request(); });
+        b.on_paste_confirm([this] { paste_confirm(); });
+    }
     // ---- column layout (hide / reorder), stored by column name per connection and table
     std::vector<std::string> column_names() const
     {
@@ -3066,6 +3186,8 @@ private:
     Store store_;
     QueryHistory history_;
     ColumnLayouts layouts_;
+    std::vector<size_t> paste_targets_;
+    std::vector<std::vector<Value>> paste_rows_;
     ColumnView view_;
     std::shared_ptr<slint::VectorModel<ColumnCfgUi>> colcfg_model_ = std::make_shared<slint::VectorModel<ColumnCfgUi>>();
     std::optional<std::string> saved_clipboard_;

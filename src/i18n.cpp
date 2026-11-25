@@ -1,4 +1,4 @@
-﻿#include "i18n.h"
+#include "i18n.h"
 
 #include <string_view>
 #include <unordered_map>
@@ -189,7 +189,29 @@ const Entry kTable[] = {
     { "cols.reset", "Show all", "Mostrar todas" },
     { "cols.keep-one", "At least one column must stay visible.", "Debe quedar al menos una columna visible." },
     { "cols.has-filter", "Clear this column's filter before hiding it.", "Quita el filtro de esta columna antes de ocultarla." },
-    { "hist.title", "History", "Historial" },
+    { "copyas.title", "Copy as", "Copiar como" },
+    { "copyas.note", "Copies the columns you see, in the order you see them. The page copy is limited to 8 MB. INSERT uses this engine's quoting.", "Copia las columnas visibles en el orden en que se ven. La copia de la página se limita a 8 MB. INSERT usa el entrecomillado de este motor." },
+    { "copyas.row", "Selected row", "Fila seleccionada" },
+    { "copyas.page", "Rows on this page", "Filas de esta página" },
+    { "copyas.done", "Copied {0} row(s)", "Copiadas {0} fila(s)" },
+    { "copyas.truncated", "Copied only {0} row(s): the 8 MB limit was reached", "Solo se copiaron {0} fila(s): se alcanzó el límite de 8 MB" },
+    { "copyas.no-insert", "INSERT is not available for MongoDB", "INSERT no está disponible para MongoDB" },
+    { "copyas.failed", "Could not write to the clipboard", "No se pudo escribir en el portapapeles" },
+    { "copyas.error", "Could not copy: {0}", "No se pudo copiar: {0}" },
+    { "paste.title", "Paste rows", "Pegar filas" },
+    { "paste.confirm", "Add as new rows", "Añadir como filas nuevas" },
+    { "paste.empty", "The clipboard has no text to paste", "El portapapeles no tiene texto para pegar" },
+    { "paste.too-big", "The pasted text is too large (limit 4 MB)", "El texto pegado es demasiado grande (límite 4 MB)" },
+    { "paste.too-many", "Too many rows to paste (limit 2000)", "Demasiadas filas para pegar (límite 2000)" },
+    { "paste.bad-quote", "The pasted text has an unclosed quote", "El texto pegado tiene unas comillas sin cerrar" },
+    { "paste.extra-cells", "more cells than columns available from the selected one", "hay más celdas que columnas desde la seleccionada" },
+    { "paste.readonly-col", "this column cannot be edited", "esta columna no se puede editar" },
+    { "paste.empty-not-null", "empty value in a required column", "valor vacío en una columna obligatoria" },
+    { "paste.bad-value", "invalid value", "valor no válido" },
+    { "paste.invalid", "Nothing was added. {0} problem(s) found:", "No se añadió nada. Se encontraron {0} problema(s):" },
+    { "paste.issue", "Row {0}, column {1}: {2}", "Fila {0}, columna {1}: {2}" },
+    { "paste.ready", "{0} row(s) will be added as new rows, filling: {1}. They stay pending until you save; you can undo them.", "Se añadirán {0} fila(s) nuevas rellenando: {1}. Quedan pendientes hasta guardar; puedes deshacerlas." },
+    { "paste.done", "{0} row(s) added (pending save)", "{0} fila(s) añadidas (pendientes de guardar)" },    { "hist.title", "History", "Historial" },
     { "hist.search", "Search saved queries", "Buscar en las consultas guardadas" },
     { "hist.favorites", "Favorites", "Favoritas" },
     { "hist.empty", "Queries you run successfully will appear here.", "Las consultas que ejecutes con éxito aparecerán aquí." },

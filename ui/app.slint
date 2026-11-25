@@ -1,9 +1,9 @@
-﻿import { ListView, ScrollView } from "std-widgets.slint";
+import { ListView, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Backend } from "backend.slint";
 import { Icon, Btn, IconBtn, TextField, Dropdown, Badge, Sep, Spinner, EmptyState, ProgressBar } from "widgets.slint";
 import { DataGrid, ResultGrid } from "grid.slint";
-import { ConfirmDialog, ConnectionDialog, ExportDialog, DetailDialog, SettingsDialog, AboutDialog, HistoryDialog, ColumnsDialog } from "dialogs.slint";
+import { ConfirmDialog, ConnectionDialog, ExportDialog, DetailDialog, SettingsDialog, AboutDialog, HistoryDialog, ColumnsDialog, CopyAsDialog, PasteDialog } from "dialogs.slint";
 import { TreeRowUi, TabUi, MetricUi } from "types.slint";
 
 component EnvBadge inherits Rectangle {
@@ -176,6 +176,8 @@ component GridToolbar inherits Rectangle {
         IconBtn { glyph: "\u{E7A6}"; enabled: Backend.can-redo; clicked => { Backend.redo(); } }
         IconBtn { glyph: "\u{E8C8}"; enabled: Backend.sel-row >= 0; clicked => { Backend.copy-cell(); } }
         IconBtn { glyph: "\u{E8A1}"; enabled: Backend.sel-row >= 0 && Backend.sel-col >= 0; clicked => { Backend.open-detail(); } }
+        IconBtn { glyph: "\u{E9F9}"; enabled: Backend.has-table; clicked => { Backend.copyas-open = true; } }
+        IconBtn { glyph: "\u{E77F}"; enabled: Backend.editable; clicked => { Backend.paste-request(); } }
         Rectangle { }
         IconBtn { glyph: "\u{E71D}"; enabled: Backend.has-table; clicked => { Backend.colcfg-open-clicked(); } }
         IconBtn { glyph: "\u{E943}"; active: Backend.show-query; enabled: Backend.has-table; clicked => { Backend.toggle-query(); } }
@@ -782,6 +784,8 @@ export component AppWindow inherits Window {
     if Backend.conn-dlg-open: ConnectionDialog { width: root.width; height: root.height; }
     if Backend.exp-open: ExportDialog { width: root.width; height: root.height; }
     if Backend.detail-open: DetailDialog { width: root.width; height: root.height; }
+    if Backend.copyas-open: CopyAsDialog { width: root.width; height: root.height; }
+    if Backend.paste-open: PasteDialog { width: root.width; height: root.height; }
     if Backend.colcfg-open: ColumnsDialog { width: root.width; height: root.height; }
     if Backend.hist-open: HistoryDialog { width: root.width; height: root.height; }
     if Backend.settings-open: SettingsDialog { width: root.width; height: root.height; }

@@ -1,4 +1,4 @@
-﻿import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi, HistoryUi, ColumnCfgUi } from "types.slint";
+import { ColumnUi, RowUi, TreeRowUi, TabUi, MetricUi, HistoryUi, ColumnCfgUi } from "types.slint";
 
 // Everything the UI shows or asks for goes through this global; src/app.cpp implements it.
 export global Backend {
@@ -166,6 +166,14 @@ export global Backend {
     callback column-resized(int, length);
     callback page-size-picked(int);
     callback toggle-query();
+    in-out property <bool> copyas-open: false;
+    in-out property <int> copyas-format: 0;
+    callback copyas-do(int);
+    callback paste-request();
+    in-out property <bool> paste-open: false;
+    in property <string> paste-summary;
+    in property <bool> paste-can-confirm;
+    callback paste-confirm();
     in-out property <bool> colcfg-open: false;
     in property <[ColumnCfgUi]> colcfg-rows;
     callback colcfg-open-clicked();

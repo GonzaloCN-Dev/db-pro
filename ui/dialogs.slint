@@ -1,4 +1,4 @@
-﻿import { ScrollView, ListView } from "std-widgets.slint";
+import { ScrollView, ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Backend } from "backend.slint";
 import { Icon, Btn, IconBtn, TextField, Check, Dropdown, Segmented, FieldLabel, Sep, Spinner, ProgressBar } from "widgets.slint";
@@ -434,6 +434,42 @@ export component ColumnsDialog inherits Modal {
         Btn { text: Backend.t("cols.reset"); kind: "ghost"; clicked => { Backend.colcfg-reset(); } }
         Rectangle { }
         Btn { text: Backend.t("close"); clicked => { Backend.colcfg-open = false; } }
+    }
+}
+
+export component CopyAsDialog inherits Modal {
+    title: Backend.t("copyas.title");
+    dlg-width: 440px;
+    dismissed => { Backend.copyas-open = false; }
+    VerticalLayout {
+        spacing: 4px;
+        FieldLabel { text: Backend.t("export.format"); }
+        Segmented {
+            model: ["TSV", "CSV", "JSON", "INSERT"];
+            current-index: Backend.copyas-format;
+            selected(i) => { Backend.copyas-format = i; }
+        }
+    }
+    Text { text: Backend.t("copyas.note"); font-size: 12px; color: Theme.text-dim; wrap: word-wrap; }
+    HorizontalLayout {
+        spacing: 8px;
+        Btn { text: Backend.t("copyas.row"); enabled: Backend.sel-row >= 0; clicked => { Backend.copyas-do(0); } }
+        Btn { text: Backend.t("copyas.page"); clicked => { Backend.copyas-do(1); } }
+        Rectangle { }
+        Btn { text: Backend.t("close"); kind: "ghost"; clicked => { Backend.copyas-open = false; } }
+    }
+}
+
+export component PasteDialog inherits Modal {
+    title: Backend.t("paste.title");
+    dlg-width: 520px;
+    dismissed => { Backend.paste-open = false; }
+    Text { text: Backend.paste-summary; font-size: 12px; color: Theme.text; wrap: word-wrap; }
+    HorizontalLayout {
+        spacing: 8px;
+        Rectangle { }
+        Btn { text: Backend.t("cancel"); kind: "ghost"; clicked => { Backend.paste-open = false; } }
+        Btn { text: Backend.t("paste.confirm"); enabled: Backend.paste-can-confirm; clicked => { Backend.paste-confirm(); } }
     }
 }
 
